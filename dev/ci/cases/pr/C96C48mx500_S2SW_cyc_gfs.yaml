@@ -16,8 +16,6 @@ experiment:
   start: cold
   yaml: {{ HOMEgfs }}/dev/ci/cases/yamls/gfs_cyc_defaults_ci.yaml
 
-skip_ci_on_hosts:
-
 workflow:
   engine: rocoto
   rocoto:
