@@ -7,8 +7,18 @@ the production GFSv17 suite by:
   * slicing out only the 12Z and 00Z cycle families,
   * dropping cross-cycle triggers in 12Z (cold-start, no prior cycle),
   * remapping 00Z cross-cycle references from production's 18Z to our 12Z,
-  * capping per-forecast-hour events and product tasks at f120,
-  * trimming the ENKF ensemble to members 001 and 002,
+  * capping per-forecast-hour events and product tasks at f120 and clamping
+    surviving trigger references that point above f120 to point at f120,
+  * trimming the ENKF forecast ensemble (``task jenkfgdas_fcst_memNNN``)
+    to members 001 and 002,
+  * dropping the production trigger reference to
+    ``analysis/recenter/jenkfgdas_atmos_ens_anal_sfc_regrid`` (the task
+    actually lives under ``analysis/create/`` in production -- the trigger
+    path is wrong upstream),
+  * rewriting each cycle's ``cycle_end`` trigger so 12Z has no prior-cycle
+    dependency and 00Z waits on 12Z,
+  * dropping in-block ``edit ECF_FILES`` overrides so the suite-level setting
+    takes effect for the C96 scripts directory,
   * wrapping the result in a fresh ``gfs_c96`` suite header.
 
 This script is the single source of truth for ``gfs_c96.def``; regenerate
@@ -55,14 +65,20 @@ def _slice(lines: list[str], rng: tuple[int, int]) -> list[str]:
 
 # event N release_<thing>_f###
 _EVENT_FHR_RE = re.compile(r"^\s*event\s+\d+\s+release_\S+_f(\d{3})\s*$")
-# ../../../forecast/jgfs_fcst_fsm:release_<thing>_f###
-_TRIGGER_FHR_RE = re.compile(r":release_\S+_f(\d{3})\b")
 # task jgfs_atmos_product_f### / jgfs_wave_post_<x>_f### / etc.
 _TASK_FHR_RE = re.compile(r"^\s*task\s+\S*_f(\d{3})\s*$")
+# Any token ending in _f### inside a trigger expression.
+_FHR_TOKEN_RE = re.compile(r"_f(\d{3})\b")
 
 
 def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
-    """Drop event/task blocks that target a forecast hour above ``cap``."""
+    """Drop event/task blocks above ``cap`` and clamp surviving triggers.
+
+    Surviving trigger references that name an fhr above ``cap`` are
+    rewritten to reference ``cap`` (the highest fhr that exists in the
+    truncated suite), which keeps downstream tasks runnable.
+    """
+    cap_str = f"{cap:03d}"
     out: list[str] = []
     i = 0
     while i < len(lines):
@@ -75,9 +91,9 @@ def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
 
         m = _TASK_FHR_RE.match(line)
         if m and int(m.group(1)) > cap:
-            # A per-fhr product task is a 4-line block: task / edit FHR / edit
-            # FHR_LIST / trigger.  Skip until we hit a line that starts a new
-            # task or a structural keyword at the same or shallower indent.
+            # A per-fhr product task is a small block (task / edit / edit /
+            # trigger).  Skip until we hit the next sibling or structural
+            # keyword at the same or shallower indent.
             base_indent = len(line) - len(line.lstrip())
             i += 1
             while i < len(lines):
@@ -92,6 +108,13 @@ def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
                 i += 1
             continue
 
+        if "trigger " in line:
+            line = _FHR_TOKEN_RE.sub(
+                lambda mt: f"_f{cap_str}" if int(mt.group(1)) > cap
+                                          else mt.group(0),
+                line,
+            )
+
         out.append(line)
         i += 1
     return out
@@ -101,26 +124,33 @@ def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
 # ENKF member filtering
 # ---------------------------------------------------------------------------
 
-_FAMILY_MEM_RE = re.compile(r"^(\s*)family\s+mem(\d{3})\s*$")
+_TASK_ENKF_FCST_MEM_RE = re.compile(
+    r"^(?P<lead>\s*)task\s+jenkfgdas_fcst_mem(?P<mem>\d{3})\s*$")
 
 
 def _strip_unwanted_enkf_members(lines: list[str]) -> list[str]:
-    """Drop ``family mem### ... endfamily`` blocks not in :data:`KEEP_ENSMEM`."""
+    """Drop ``task jenkfgdas_fcst_memNNN`` blocks not in :data:`KEEP_ENSMEM`.
+
+    Each task block is the ``task`` line plus its trailing ``edit`` lines
+    (ENSMEM, MEMDIR), terminated by the next sibling task / family /
+    endfamily / endsuite at the same or shallower indent.
+    """
     out: list[str] = []
     i = 0
     while i < len(lines):
-        m = _FAMILY_MEM_RE.match(lines[i])
-        if m and m.group(2) not in KEEP_ENSMEM:
-            indent = len(m.group(1))
-            depth = 1
+        m = _TASK_ENKF_FCST_MEM_RE.match(lines[i])
+        if m and m.group("mem") not in KEEP_ENSMEM:
+            base_indent = len(m.group("lead"))
             i += 1
-            while i < len(lines) and depth > 0:
-                stripped = lines[i].lstrip()
-                line_indent = len(lines[i]) - len(stripped)
-                if stripped.startswith("family "):
-                    depth += 1
-                elif stripped.startswith("endfamily") and line_indent == indent:
-                    depth -= 1
+            while i < len(lines):
+                nxt = lines[i]
+                stripped = nxt.lstrip()
+                indent = len(nxt) - len(stripped)
+                if stripped and indent <= base_indent and (
+                    stripped.startswith(("task ", "family ", "endfamily",
+                                          "endsuite"))
+                ):
+                    break
                 i += 1
             continue
         out.append(lines[i])
@@ -129,69 +159,81 @@ def _strip_unwanted_enkf_members(lines: list[str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Cross-cycle trigger surgery
+# Trigger-expression surgery
 # ---------------------------------------------------------------------------
 
-# Match a single cross-cycle reference of the form
-#   ../../../../<cyc>/<path>==complete
-# possibly followed/preceded by `` and `` joiners.
-_CROSS_REF = r"\.\./\.\./\.\./\.\./{cyc}/[^\s]+?==complete"
+_TRIGGER_RE = re.compile(r"^(?P<lead>\s*trigger\s+)(?P<expr>.*\S)\s*$")
 
 
-def _drop_cross_cycle(lines: list[str], cyc: str) -> list[str]:
-    """Remove every ``../../../../<cyc>/...==complete`` term from triggers.
+def _drop_terms_from_triggers(lines: list[str], should_drop) -> list[str]:
+    """Remove trigger conjuncts where ``should_drop(term)`` is true.
 
-    A trigger that consists entirely of cross-cycle terms (joined by `` and ``)
-    is removed wholesale.  Otherwise the surviving conjuncts are preserved and
-    the line is kept.
+    Triggers are split on `` and ``.  ``or`` is left untouched; none of the
+    triggers we modify in this builder mix ``or`` with the dropped paths.
     """
-    pattern = _CROSS_REF.format(cyc=cyc)
-    leading_and = re.compile(r"\s+and\s+" + pattern)
-    trailing_and = re.compile(pattern + r"\s+and\s+")
-    standalone = re.compile(r"^(\s*trigger\s+)" + pattern + r"\s*$")
-
     out: list[str] = []
     for line in lines:
-        if "trigger " not in line:
+        m = _TRIGGER_RE.match(line)
+        if not m:
             out.append(line)
             continue
-        if standalone.match(line):
-            # Trigger is *only* the cross-cycle ref; check if there are
-            # additional conjuncts on the same line.
-            stripped = line.strip()
-            if re.fullmatch(r"trigger\s+" + pattern, stripped):
-                # Pure cross-cycle trigger; drop the whole trigger line.
-                continue
-        new = trailing_and.sub("", line)
-        new = leading_and.sub("", new)
-        # If the trigger keyword now has nothing to its right, drop the line.
-        if re.match(r"^\s*trigger\s*$", new):
+        terms = re.split(r"\s+and\s+", m.group("expr"))
+        kept = [t for t in terms if not should_drop(t.strip())]
+        if not kept:
             continue
-        out.append(new)
+        out.append(f"{m.group('lead')}{' and '.join(kept)}")
     return out
 
 
+def _drop_cross_cycle(lines: list[str], cyc: str) -> list[str]:
+    """Remove cross-cycle terms referencing ``../../../../<cyc>/...``."""
+    cross = re.compile(r"^\.\./\.\./\.\./\.\./" + cyc + r"/")
+    return _drop_terms_from_triggers(
+        lines, lambda term: bool(cross.match(term)))
+
+
+def _drop_terms_matching(lines: list[str], pattern: str) -> list[str]:
+    """Remove trigger conjuncts whose text matches ``pattern``."""
+    rx = re.compile(pattern)
+    return _drop_terms_from_triggers(
+        lines, lambda term: bool(rx.search(term)))
+
+
 def _remap_cross_cycle(lines: list[str], src: str, dst: str) -> list[str]:
+    """Rewrite ``../../../../<src>/...`` to ``../../../../<dst>/...``."""
     pat = re.compile(r"(\.\./\.\./\.\./\.\./)" + src + r"/")
     return [pat.sub(r"\g<1>" + dst + "/", ln) for ln in lines]
 
 
-# ---------------------------------------------------------------------------
-# Reindent / structural rewrites
-# ---------------------------------------------------------------------------
+def _rewrite_cycle_end_trigger(lines: list[str], prev_cyc: str | None
+                               ) -> list[str]:
+    """Replace ``cycle_end``'s ``trigger ../<prev>/gdas/forecast == ...`` line.
 
-def _strip_indent(lines: list[str], n: int) -> list[str]:
-    """Strip up to ``n`` leading spaces from each non-empty line."""
+    For ``prev_cyc=None`` (the cold-start cycle) the trigger is dropped
+    entirely.  For ``prev_cyc='12'`` (used in the 00Z cycle) the trigger
+    is rewritten to reference the 12Z gdas/forecast family.
+    """
     out: list[str] = []
-    for ln in lines:
-        if not ln:
-            out.append(ln)
+    rx = re.compile(
+        r"^(\s*)trigger\s+\.\./\d{2}/gdas/forecast\s*==\s*active\s+or\s+"
+        r"\.\./\d{2}/gdas/forecast\s*==\s*complete\s*$")
+    for line in lines:
+        m = rx.match(line)
+        if not m:
+            out.append(line)
             continue
-        stripped_lead = len(ln) - len(ln.lstrip(" "))
-        cut = min(n, stripped_lead)
-        out.append(ln[cut:])
+        if prev_cyc is None:
+            continue
+        indent = m.group(1)
+        out.append(
+            f"{indent}trigger ../{prev_cyc}/gdas/forecast == active or "
+            f"../{prev_cyc}/gdas/forecast == complete")
     return out
 
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
 
 def build_c96_def() -> str:
     prod_lines = _read_lines(PROD_DEF)
@@ -199,25 +241,36 @@ def build_c96_def() -> str:
     cyc12 = _slice(prod_lines, CYC12_RANGE)
     cyc00 = _slice(prod_lines, CYC00_RANGE)
 
-    # 12Z is the cold-start; remove cross-cycle dependencies on prior 06Z.
+    # In-cycle ECF_FILES overrides; the suite header sets ECF_FILES once
+    # for the C96 scripts directory and we don't want it shadowed.
+    drop_ecf_files = lambda lns: [
+        ln for ln in lns if not re.match(r"\s*edit\s+ECF_FILES\b", ln)]
+    cyc12 = drop_ecf_files(cyc12)
+    cyc00 = drop_ecf_files(cyc00)
+
+    # Cross-cycle triggers.
     cyc12 = _drop_cross_cycle(cyc12, "06")
-    # 00Z follows 12Z in our 2-cycle suite (production has it follow 18Z).
     cyc00 = _remap_cross_cycle(cyc00, "18", "12")
 
-    # Cap product events/tasks at f120 in both cycles.
+    # Production references a recenter-path task that actually lives in
+    # analysis/create/; drop that single term from any triggers that name it.
+    bad_term = (r"analysis/recenter/jenkfgdas_atmos_ens_anal_sfc_regrid"
+                r"==complete")
+    cyc12 = _drop_terms_matching(cyc12, bad_term)
+    cyc00 = _drop_terms_matching(cyc00, bad_term)
+
+    # Per-cycle cycle_end task: 12Z is cold-start so drop its trigger;
+    # 00Z waits on 12Z's gdas/forecast.
+    cyc12 = _rewrite_cycle_end_trigger(cyc12, prev_cyc=None)
+    cyc00 = _rewrite_cycle_end_trigger(cyc00, prev_cyc="12")
+
+    # Cap per-fhr events/tasks at f120 and clamp surviving triggers.
     cyc12 = _strip_high_fhr(cyc12, FHR_CAP)
     cyc00 = _strip_high_fhr(cyc00, FHR_CAP)
 
-    # Trim ENKF ensemble to the requested members.
+    # Trim ENKF forecast members.
     cyc12 = _strip_unwanted_enkf_members(cyc12)
     cyc00 = _strip_unwanted_enkf_members(cyc00)
-
-    # Both cycle blocks were originally indented by 4 spaces inside
-    # ``family primary``; strip 2 of those so that, after we re-add a single
-    # ``family primary`` wrapper at indent 2, the cycle families sit at indent
-    # 4 -- matching production.
-    cyc12 = _strip_indent(cyc12, 0)
-    cyc00 = _strip_indent(cyc00, 0)
 
     header = [
         "# Auto-generated by dev/ecf/c96/build_def.py",
@@ -228,6 +281,8 @@ def build_c96_def() -> str:
         "  family primary",
         "    edit gfs_ver 'v17.0'",
         "    edit PACKAGEHOME '%HOMEgfs%'",
+        "    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/scripts'",
+        "    edit ECF_INCLUDE '%HOMEgfs%/ecf/include'",
         "    edit NET 'gfs'",
         "    edit RUN 'gfs'",
         "    edit PROJ 'GFS'",
