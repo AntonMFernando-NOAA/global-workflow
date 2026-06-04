@@ -1,52 +1,39 @@
+#PBS -S /bin/bash
+#PBS -N cycle_end_%CYC%
+#PBS -j oe
+#PBS -q %QUEUE%
+#PBS -A %PROJ%-%PROJENVIR%
+#PBS -l walltime=00:05:00
+#PBS -l select=1:ncpus=1:mem=1GB
+#PBS -l debug=true
+
 model=gfs
 %include <head.h>
 %include <envir-p1.h>
-module load prod_util
 set -x
-cyc=%CYC%
-export cycle=t${cyc}z
-case ${cyc} in
-  00)
-     cyc_to_wait="06"
-     prev_cyc="18"
-     ;;
-  06)
-     cyc_to_wait="12"
-     prev_cyc="00"
-     ;;
-  12)
-     cyc_to_wait="18"
-     prev_cyc="06"
-     ;;
-  18)
-     cyc_to_wait="00"
-     prev_cyc="12"
-     ;;
-esac
-retro=YES
-suite_name=$(ecflow_client --query variable ${ECF_NAME}:SUITE)
 
-# set retro=NO for NCO code deliver
-# Set PDY for this cycle
-# Set job log directory for developer
-if [ $retro == "YES" ]; then
-  outputdir_ecf=%OUTPUTDIR%
-  cd ${outputdir_ecf}/ecflocal
-  setpdy.sh
-  . ./PDY
-  echo "Current retro PDY is $PDY"
-  echo "Current retro cyc is $cyc"
-  outputdir_ecf_today=${outputdir_ecf}/${PDYp1}${cyc}
-  mkdir -p ${outputdir_ecf_today}
-  ecflow_client --alter add variable PDY $PDYp1 /${suite_name}/primary/${cyc}
-  ecflow_client --alter add variable OUTPUTDIR $outputdir_ecf_today /${suite_name}/primary/${cyc}/gfs
-  ecflow_client --alter add variable OUTPUTDIR $outputdir_ecf_today /${suite_name}/primary/${cyc}/gdas
-  ecflow_client --alter add variable OUTPUTDIR $outputdir_ecf_today /${suite_name}/primary/${cyc}/enkfgdas
-  ecflow_client --requeue=force /${suite_name}/primary/${cyc}/gfs
-  ecflow_client --requeue=force /${suite_name}/primary/${cyc}/gdas
-  ecflow_client --requeue=force /${suite_name}/primary/${cyc}/enkfgdas
-  ecflow_client --requeue=force /${suite_name}/primary/${cyc_to_wait}/cycle_end
-fi
+# Custom cycle_end for the C96 2-cycle suite.
+# Production's cycle_end advances PDY and requeues the next cycle in the
+# round (00->06->12->18->00).  The C96 suite only has 12Z (cold-start) and
+# 00Z; there is no production-style cycle rotation.  After 12Z we requeue
+# the 00Z cycle's cycle_end so it can run; after 00Z we exit cleanly.
+
+cyc=%CYC%
+suite_name=$(ecflow_client --query variable "${ECF_NAME}":SUITE)
+
+case ${cyc} in
+  12)
+    ecflow_client --requeue=force "/${suite_name}/primary/00/cycle_end"
+    ;;
+  00)
+    echo "Final cycle (00Z) reached; suite complete."
+    ;;
+  *)
+    echo "ERROR: unexpected cycle '${cyc}' for the C96 2-cycle suite."
+    echo "       Only 12 and 00 are supported."
+    exit 1
+    ;;
+esac
 
 %include <tail.h>
 exit 0
