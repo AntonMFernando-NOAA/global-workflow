@@ -282,7 +282,7 @@ def build_c96_def() -> str:
         "    edit gfs_ver 'v17.0'",
         "    edit PACKAGEHOME '%HOMEgfs%'",
         "    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/scripts'",
-        "    edit ECF_INCLUDE '%HOMEgfs%/ecf/include'",
+        "    edit ECF_INCLUDE '%HOMEgfs%/dev/ecf/c96/include'",
         "    edit NET 'gfs'",
         "    edit RUN 'gfs'",
         "    edit PROJ 'GFS'",
