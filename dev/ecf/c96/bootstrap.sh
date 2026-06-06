@@ -79,13 +79,13 @@ alter_var HOMEglobal     "${HOMEgfs}"
 alter_var ecflow_ver     5.6.0
 alter_var PDY            "$(date +%Y%m%d)"
 alter_var PARATEST       NO
-alter_var COMPATH        ""
-alter_var MAILTO         ""
+alter_var COMPATH        " "
+alter_var MAILTO         " "
 alter_var DBNLOG         NO
 alter_var SENDDBN        NO
 alter_var SENDDBN_NTC    NO
 alter_var SENDCANNEDDBN  NO
-alter_var rrfs_ver       ""
+alter_var rrfs_ver       " "
 
 # Dev workspace overrides -- this is the part that diverges from production.
 alter_var DATAROOT       "${DATAROOT}"
