@@ -1,0 +1,683 @@
+# ============================================================================
+# C96_cycle.def — hard-coded ecFlow suite for the C96C48mx500_S2SW cycled test
+# ----------------------------------------------------------------------------
+# Hand-written translation of the Rocoto XML
+#   C96C48mx500_S2SW_cyc_gfs_t.xml
+# for a first, runnable ecFlow test of the cycled gfs.v17 forecast manager
+# (PR #4907 + the GDAS/enkfGDAS extension on feature/gfsv1-gdas-forecast-mgr).
+#
+# Cycle structure (mirrors the XML cycledefs):
+#   family 12  -> gdas_half cold-start half cycle (stage ICs, run gdas +
+#                 enkfgdas forecasts and the forecast managers only)
+#   family 18  -> full cycle: gfs + gdas + enkfgfs + enkfgdas
+#   family 00  -> full cycle: gfs + gdas + enkfgfs + enkfgdas
+# cycle_end chains 12 -> 18 -> 00.
+#
+# Each task maps to a thin wrapper script ECF_FILES/<task>.ecf that sets the
+# task-specific PBS resources (from the XML), sources head.h / envir-p1.h,
+# and execs the matching dev/job_cards/rocoto/<task>.sh launcher. RUN/NET/CYC
+# are inherited from the enclosing family edits.
+#
+# NOTE: cross-cycle deps in the XML (cycle_offset="-06:00:00") are handled here
+#       implicitly by the cycle_end 12->18->00 hand-off; intra-cycle triggers
+#       are translated faithfully. Per-forecast-hour product groups are written
+#       as ecFlow families to mirror the XML metatasks.
+# ============================================================================
+suite gfs_c96_cycle
+  family primary
+    # ---- suite-level configuration (dev server + package layout) ----
+    edit gfs_ver 'v17.0'
+    edit PACKAGEHOME '%HOMEgfs%'
+    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/cycle_scripts'
+    edit ECF_INCLUDE '%HOMEgfs%/dev/ecf/c96/include'
+    edit NET 'gfs'
+    edit RUN 'gfs'
+    edit PROJ 'GFS'
+    edit PROJENVIR 'DEV'
+    edit MACHINE_SITE 'development'
+    edit ENVIR 'prod'
+    edit QUEUE 'dev'
+    edit QUEUE_ARCH 'dev_transfer'
+    edit EXPDIR '%PACKAGEHOME%/parm/config/gfs'
+    edit OUTPUTDIR '%HOMEgfs%/dev/ecf/c96/output'
+    edit SENDDBN 'NO'
+
+    # ====================================================================
+    # 12Z — gdas_half cold-start half cycle
+    #   Stage ICs, run the gdas and enkfgdas forecasts + forecast managers
+    #   that produce the backgrounds consumed by the 18Z analysis.
+    # ====================================================================
+    family 12
+      edit CYC '12'
+
+      family gdas
+        edit RUN 'gdas'
+        # cold start: stage ICs, then forecast
+        task stage_ic
+        task waveinit
+          trigger stage_ic == complete
+        task fcst
+          trigger stage_ic == complete and waveinit == complete
+        # real-time product copy manager runs alongside the forecast
+        task fcst_manager
+          trigger fcst == active or fcst == complete
+        # atmos products f000-f009 (gdas_atmos_prod metatask)
+        family atmos_prod
+          edit COMPONENT 'atmos'
+          trigger ../fcst == active or ../fcst == complete
+          task f000
+            edit FHR_LIST '0'
+          task f001
+            edit FHR_LIST '1'
+          task f002
+            edit FHR_LIST '2'
+          task f003
+            edit FHR_LIST '3'
+          task f004
+            edit FHR_LIST '4'
+          task f005
+            edit FHR_LIST '5'
+          task f006
+            edit FHR_LIST '6'
+          task f007
+            edit FHR_LIST '7'
+          task f008
+            edit FHR_LIST '8'
+          task f009
+            edit FHR_LIST '9'
+        endfamily               //atmos_prod
+        family wave_prod
+          trigger ../fcst == complete
+          task wavepostgridded
+          task wavepostpnt
+        endfamily               //wave_prod
+      endfamily                 //gdas
+
+      family enkfgdas
+        edit RUN 'enkfgdas'
+        task stage_ic
+        family forecast
+          trigger stage_ic == complete
+          task fcst_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+          task fcst_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+        endfamily               //forecast
+        family efcs_manager
+          # member forecast managers run alongside each member forecast
+          task fcst_manager_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+            trigger ../forecast/fcst_mem001 == active or ../forecast/fcst_mem001 == complete
+          task fcst_manager_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+            trigger ../forecast/fcst_mem002 == active or ../forecast/fcst_mem002 == complete
+        endfamily               //efcs_manager
+        task echgres
+          trigger ../gdas/fcst == complete and efcs_manager/fcst_manager_mem001 == complete
+        # enkfgdas_epmn (epos) metatask, groups 000-006
+        family epmn
+          trigger efcs_manager == complete
+          task epos000
+            edit FHRGRP '000'
+            edit FHRLST 'f003'
+          task epos001
+            edit FHRGRP '001'
+            edit FHRLST 'f004'
+          task epos002
+            edit FHRGRP '002'
+            edit FHRLST 'f005'
+          task epos003
+            edit FHRGRP '003'
+            edit FHRLST 'f006'
+          task epos004
+            edit FHRGRP '004'
+            edit FHRLST 'f007'
+          task epos005
+            edit FHRGRP '005'
+            edit FHRLST 'f008'
+          task epos006
+            edit FHRGRP '006'
+            edit FHRLST 'f009'
+        endfamily               //epmn
+      endfamily                 //enkfgdas
+
+      task cycle_end
+        trigger gdas/fcst == active or gdas/fcst == complete
+    endfamily                   //12
+
+    # ====================================================================
+    # 18Z — full cycle (gfs + gdas + enkfgfs + enkfgdas)
+    # ====================================================================
+    family 18
+      edit CYC '18'
+
+      family gdas
+        edit RUN 'gdas'
+        # --- prep / analysis ---
+        task prep
+        task snowanl
+          trigger prep == complete
+        task anal
+          trigger prep == complete
+        task analcalc
+          trigger anal == complete and sfcanl_gcycle == complete and sfcanl_regrid == complete
+        task analdiag
+          trigger anal == complete
+        task sfcanl_gcycle
+          trigger anal == complete and snowanl == complete
+        task sfcanl_regrid
+          trigger anal == complete
+        # --- marine analysis ---
+        task prepoceanobs
+        task marinebmatinit
+        task marinebmat
+          trigger marinebmatinit == complete
+        task marineanlinit
+          trigger prepoceanobs == complete and marinebmat == complete
+        task marineanlvar
+          trigger marineanlinit == complete
+        task marineanlchkpt
+          trigger marineanlvar == complete and ../enkfgdas/marineanlecen == complete
+        task marineanlfinal
+          trigger marineanlchkpt == complete
+        # --- waves / forecast ---
+        task waveinit
+          trigger prep == complete
+        task fcst
+          trigger sfcanl_gcycle == complete and sfcanl_regrid == complete and waveinit == complete and marineanlfinal == complete and snowanl == complete
+        task fcst_manager
+          trigger fcst == active or fcst == complete
+        # --- atmos analysis products ---
+        task atmanlupp
+          trigger anal == complete
+        task atmanlprod
+          trigger atmanlupp == complete
+        # --- gdas atmos products f000-f009 ---
+        family atmos_prod
+          edit COMPONENT 'atmos'
+          trigger ../fcst == active or ../fcst == complete
+          task f000
+            edit FHR_LIST '0'
+          task f003
+            edit FHR_LIST '3'
+          task f006
+            edit FHR_LIST '6'
+          task f009
+            edit FHR_LIST '9'
+        endfamily               //atmos_prod
+        family wave_prod
+          trigger ../fcst == complete
+          task wavepostgridded
+          task wavepostpnt
+        endfamily               //wave_prod
+        # --- verification ---
+        task fit2obs
+          trigger atmos_prod == complete
+        task verfozn
+          trigger analdiag == complete
+        task verfrad
+          trigger analdiag == complete
+        task vminmon
+          trigger anal == complete
+        task anlstat
+          trigger analdiag == complete and marineanlfinal == complete and snowanl == complete
+        task arch_vrfy
+          trigger atmanlprod == complete and fit2obs == complete and atmos_prod == complete and wave_prod == complete
+        task cleanup
+          trigger arch_vrfy == complete and verfozn == complete and verfrad == complete and vminmon == complete
+      endfamily                 //gdas
+
+      family gfs
+        edit RUN 'gfs'
+        task prep
+        task snowanl
+          trigger prep == complete
+        task anal
+          trigger prep == complete
+        task analcalc
+          trigger anal == complete and sfcanl_gcycle == complete
+        task sfcanl_gcycle
+          trigger anal == complete and snowanl == complete
+        # --- marine analysis ---
+        task prepoceanobs
+        task marinebmatinit
+        task marinebmat
+          trigger marinebmatinit == complete
+        task marineanlinit
+          trigger prepoceanobs == complete and marinebmat == complete
+        task marineanlvar
+          trigger marineanlinit == complete
+        task marineanlchkpt
+          trigger marineanlvar == complete and ../enkfgfs/marineanlecen == complete
+        task marineanlfinal
+          trigger marineanlchkpt == complete
+        # --- waves / forecast ---
+        task waveinit
+          trigger prep == complete
+        task fcst
+          trigger sfcanl_gcycle == complete and waveinit == complete and marineanlfinal == complete and snowanl == complete
+        task fcst_manager
+          trigger fcst == active or fcst == complete
+        # --- atmos analysis products ---
+        task atmanlupp
+          trigger anal == complete
+        task atmanlprod
+          trigger atmanlupp == complete
+        # --- gfs atmos products (representative groups; expand when templating) ---
+        family atmos_prod
+          edit COMPONENT 'atmos'
+          trigger ../fcst == active or ../fcst == complete
+          task f000_f002
+            edit FHR_LIST '0,1,2'
+          task f024_f026
+            edit FHR_LIST '24,25,26'
+          task f048_f054
+            edit FHR_LIST '48,51,54'
+          task f117_f120
+            edit FHR_LIST '117,120'
+        endfamily               //atmos_prod
+        # --- gfs ocean products (handled by fcst_manager; products consume COM) ---
+        family ocean_prod
+          edit COMPONENT 'ocean'
+          trigger ../fcst == complete
+          task f006
+            edit FHR_LIST '6'
+          task f120
+            edit FHR_LIST '120'
+        endfamily               //ocean_prod
+        family ice_prod
+          edit COMPONENT 'ice'
+          trigger ../fcst == complete
+          task f006
+            edit FHR_LIST '6'
+          task f120
+            edit FHR_LIST '120'
+        endfamily               //ice_prod
+        family wave_prod
+          trigger ../fcst == complete
+          task wavepostgridded
+          task wavepostbndpnt
+          task wavepostbndpntbll
+          task wavepostpnt
+        endfamily               //wave_prod
+        # --- downstream / verification ---
+        task tracker
+          trigger atmos_prod == complete
+        task genesis
+          trigger atmos_prod == complete
+        task vminmon
+          trigger anal == complete
+        task arch_vrfy
+          trigger atmanlprod == complete and tracker == complete and genesis == complete and atmos_prod == complete and ocean_prod == complete and ice_prod == complete and wave_prod == complete
+        task cleanup
+          trigger arch_vrfy == complete and vminmon == complete
+      endfamily                 //gfs
+
+      family enkfgdas
+        edit RUN 'enkfgdas'
+        task eobs
+          trigger ../gdas/prep == complete
+        task ediag
+          trigger eobs == complete
+        task eupd
+          trigger ediag == complete
+        family ecmn
+          trigger ../../gdas/analcalc == complete and ../eupd == complete
+          task ecen000
+            edit FHRGRP '000'
+            edit FHRLST '003'
+          task ecen001
+            edit FHRGRP '001'
+            edit FHRLST '006'
+          task ecen002
+            edit FHRGRP '002'
+            edit FHRLST '009'
+        endfamily               //ecmn
+        task marineanlecen
+          trigger ../gdas/marinebmatinit == complete
+        task esnowanl
+          trigger ../gdas/prep == complete
+        task esfc_gcycle
+          trigger ../gdas/anal == complete and esnowanl == complete
+        task esfc_regrid
+          trigger eupd == complete
+        family forecast
+          trigger ecmn == complete and esfc_gcycle == complete and esfc_regrid == complete and marineanlecen == complete
+          task fcst_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+          task fcst_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+        endfamily               //forecast
+        family efcs_manager
+          task fcst_manager_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+            trigger ../forecast/fcst_mem001 == active or ../forecast/fcst_mem001 == complete
+          task fcst_manager_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+            trigger ../forecast/fcst_mem002 == active or ../forecast/fcst_mem002 == complete
+        endfamily               //efcs_manager
+        task echgres
+          trigger efcs_manager/fcst_manager_mem001 == complete
+        family epmn
+          trigger efcs_manager == complete
+          task epos000
+            edit FHRGRP '000'
+            edit FHRLST 'f003'
+          task epos003
+            edit FHRGRP '003'
+            edit FHRLST 'f006'
+          task epos006
+            edit FHRGRP '006'
+            edit FHRLST 'f009'
+        endfamily               //epmn
+        task earc_vrfy
+          trigger epmn == complete and echgres == complete
+        task cleanup
+          trigger earc_vrfy == complete
+      endfamily                 //enkfgdas
+
+      family enkfgfs
+        edit RUN 'enkfgfs'
+        task eobs
+          trigger ../gdas/prep == complete
+        task ediag
+          trigger eobs == complete
+        task eupd
+          trigger ediag == complete
+        family ecmn
+          trigger ../../gfs/analcalc == complete and ../eupd == complete
+          task ecen000
+            edit FHRGRP '000'
+            edit FHRLST '003'
+          task ecen001
+            edit FHRGRP '001'
+            edit FHRLST '006'
+          task ecen002
+            edit FHRGRP '002'
+            edit FHRLST '009'
+        endfamily               //ecmn
+        task marineanlecen
+          trigger ../gfs/marinebmatinit == complete
+        task esnowanl
+          trigger ../gfs/prep == complete
+        task esfc_gcycle
+          trigger ../gfs/anal == complete and esnowanl == complete
+        task earc_vrfy
+          trigger esfc_gcycle == complete
+        task cleanup
+          trigger earc_vrfy == complete
+      endfamily                 //enkfgfs
+
+      task cycle_end
+        trigger gdas/fcst == active or gdas/fcst == complete
+    endfamily                   //18
+
+    # ====================================================================
+    # 00Z — full cycle (gfs + gdas + enkfgfs + enkfgdas); identical to 18Z
+    # ====================================================================
+    family 00
+      edit CYC '00'
+
+      family gdas
+        edit RUN 'gdas'
+        task prep
+        task snowanl
+          trigger prep == complete
+        task anal
+          trigger prep == complete
+        task analcalc
+          trigger anal == complete and sfcanl_gcycle == complete and sfcanl_regrid == complete
+        task analdiag
+          trigger anal == complete
+        task sfcanl_gcycle
+          trigger anal == complete and snowanl == complete
+        task sfcanl_regrid
+          trigger anal == complete
+        task prepoceanobs
+        task marinebmatinit
+        task marinebmat
+          trigger marinebmatinit == complete
+        task marineanlinit
+          trigger prepoceanobs == complete and marinebmat == complete
+        task marineanlvar
+          trigger marineanlinit == complete
+        task marineanlchkpt
+          trigger marineanlvar == complete and ../enkfgdas/marineanlecen == complete
+        task marineanlfinal
+          trigger marineanlchkpt == complete
+        task waveinit
+          trigger prep == complete
+        task fcst
+          trigger sfcanl_gcycle == complete and sfcanl_regrid == complete and waveinit == complete and marineanlfinal == complete and snowanl == complete
+        task fcst_manager
+          trigger fcst == active or fcst == complete
+        task atmanlupp
+          trigger anal == complete
+        task atmanlprod
+          trigger atmanlupp == complete
+        family atmos_prod
+          edit COMPONENT 'atmos'
+          trigger ../fcst == active or ../fcst == complete
+          task f000
+            edit FHR_LIST '0'
+          task f003
+            edit FHR_LIST '3'
+          task f006
+            edit FHR_LIST '6'
+          task f009
+            edit FHR_LIST '9'
+        endfamily               //atmos_prod
+        family wave_prod
+          trigger ../fcst == complete
+          task wavepostgridded
+          task wavepostpnt
+        endfamily               //wave_prod
+        task fit2obs
+          trigger atmos_prod == complete
+        task verfozn
+          trigger analdiag == complete
+        task verfrad
+          trigger analdiag == complete
+        task vminmon
+          trigger anal == complete
+        task anlstat
+          trigger analdiag == complete and marineanlfinal == complete and snowanl == complete
+        task arch_vrfy
+          trigger atmanlprod == complete and fit2obs == complete and atmos_prod == complete and wave_prod == complete
+        task cleanup
+          trigger arch_vrfy == complete and verfozn == complete and verfrad == complete and vminmon == complete
+      endfamily                 //gdas
+
+      family gfs
+        edit RUN 'gfs'
+        task prep
+        task snowanl
+          trigger prep == complete
+        task anal
+          trigger prep == complete
+        task analcalc
+          trigger anal == complete and sfcanl_gcycle == complete
+        task sfcanl_gcycle
+          trigger anal == complete and snowanl == complete
+        task prepoceanobs
+        task marinebmatinit
+        task marinebmat
+          trigger marinebmatinit == complete
+        task marineanlinit
+          trigger prepoceanobs == complete and marinebmat == complete
+        task marineanlvar
+          trigger marineanlinit == complete
+        task marineanlchkpt
+          trigger marineanlvar == complete and ../enkfgfs/marineanlecen == complete
+        task marineanlfinal
+          trigger marineanlchkpt == complete
+        task waveinit
+          trigger prep == complete
+        task fcst
+          trigger sfcanl_gcycle == complete and waveinit == complete and marineanlfinal == complete and snowanl == complete
+        task fcst_manager
+          trigger fcst == active or fcst == complete
+        task atmanlupp
+          trigger anal == complete
+        task atmanlprod
+          trigger atmanlupp == complete
+        family atmos_prod
+          edit COMPONENT 'atmos'
+          trigger ../fcst == active or ../fcst == complete
+          task f000_f002
+            edit FHR_LIST '0,1,2'
+          task f024_f026
+            edit FHR_LIST '24,25,26'
+          task f048_f054
+            edit FHR_LIST '48,51,54'
+          task f117_f120
+            edit FHR_LIST '117,120'
+        endfamily               //atmos_prod
+        family ocean_prod
+          edit COMPONENT 'ocean'
+          trigger ../fcst == complete
+          task f006
+            edit FHR_LIST '6'
+          task f120
+            edit FHR_LIST '120'
+        endfamily               //ocean_prod
+        family ice_prod
+          edit COMPONENT 'ice'
+          trigger ../fcst == complete
+          task f006
+            edit FHR_LIST '6'
+          task f120
+            edit FHR_LIST '120'
+        endfamily               //ice_prod
+        family wave_prod
+          trigger ../fcst == complete
+          task wavepostgridded
+          task wavepostbndpnt
+          task wavepostbndpntbll
+          task wavepostpnt
+        endfamily               //wave_prod
+        task tracker
+          trigger atmos_prod == complete
+        task genesis
+          trigger atmos_prod == complete
+        task vminmon
+          trigger anal == complete
+        task arch_vrfy
+          trigger atmanlprod == complete and tracker == complete and genesis == complete and atmos_prod == complete and ocean_prod == complete and ice_prod == complete and wave_prod == complete
+        task cleanup
+          trigger arch_vrfy == complete and vminmon == complete
+      endfamily                 //gfs
+
+      family enkfgdas
+        edit RUN 'enkfgdas'
+        task eobs
+          trigger ../gdas/prep == complete
+        task ediag
+          trigger eobs == complete
+        task eupd
+          trigger ediag == complete
+        family ecmn
+          trigger ../../gdas/analcalc == complete and ../eupd == complete
+          task ecen000
+            edit FHRGRP '000'
+            edit FHRLST '003'
+          task ecen001
+            edit FHRGRP '001'
+            edit FHRLST '006'
+          task ecen002
+            edit FHRGRP '002'
+            edit FHRLST '009'
+        endfamily               //ecmn
+        task marineanlecen
+          trigger ../gdas/marinebmatinit == complete
+        task esnowanl
+          trigger ../gdas/prep == complete
+        task esfc_gcycle
+          trigger ../gdas/anal == complete and esnowanl == complete
+        task esfc_regrid
+          trigger eupd == complete
+        family forecast
+          trigger ecmn == complete and esfc_gcycle == complete and esfc_regrid == complete and marineanlecen == complete
+          task fcst_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+          task fcst_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+        endfamily               //forecast
+        family efcs_manager
+          task fcst_manager_mem001
+            edit ENSMEM '001'
+            edit MEMDIR 'mem001'
+            trigger ../forecast/fcst_mem001 == active or ../forecast/fcst_mem001 == complete
+          task fcst_manager_mem002
+            edit ENSMEM '002'
+            edit MEMDIR 'mem002'
+            trigger ../forecast/fcst_mem002 == active or ../forecast/fcst_mem002 == complete
+        endfamily               //efcs_manager
+        task echgres
+          trigger efcs_manager/fcst_manager_mem001 == complete
+        family epmn
+          trigger efcs_manager == complete
+          task epos000
+            edit FHRGRP '000'
+            edit FHRLST 'f003'
+          task epos003
+            edit FHRGRP '003'
+            edit FHRLST 'f006'
+          task epos006
+            edit FHRGRP '006'
+            edit FHRLST 'f009'
+        endfamily               //epmn
+        task earc_vrfy
+          trigger epmn == complete and echgres == complete
+        task cleanup
+          trigger earc_vrfy == complete
+      endfamily                 //enkfgdas
+
+      family enkfgfs
+        edit RUN 'enkfgfs'
+        task eobs
+          trigger ../gdas/prep == complete
+        task ediag
+          trigger eobs == complete
+        task eupd
+          trigger ediag == complete
+        family ecmn
+          trigger ../../gfs/analcalc == complete and ../eupd == complete
+          task ecen000
+            edit FHRGRP '000'
+            edit FHRLST '003'
+          task ecen001
+            edit FHRGRP '001'
+            edit FHRLST '006'
+          task ecen002
+            edit FHRGRP '002'
+            edit FHRLST '009'
+        endfamily               //ecmn
+        task marineanlecen
+          trigger ../gfs/marinebmatinit == complete
+        task esnowanl
+          trigger ../gfs/prep == complete
+        task esfc_gcycle
+          trigger ../gfs/anal == complete and esnowanl == complete
+        task earc_vrfy
+          trigger esfc_gcycle == complete
+        task cleanup
+          trigger earc_vrfy == complete
+      endfamily                 //enkfgfs
+
+      task cycle_end
+        trigger gdas/fcst == active or gdas/fcst == complete
+    endfamily                   //00
+
+  endfamily                       //primary
+endsuite                          //gfs_c96_cycle
