@@ -22,6 +22,10 @@
 #       implicitly by the cycle_end 12->18->00 hand-off; intra-cycle triggers
 #       are translated faithfully. Per-forecast-hour product groups are written
 #       as ecFlow families to mirror the XML metatasks.
+#
+# NOTE on path resolution: family-level triggers are evaluated relative to the
+#       FAMILY's PARENT, so to reference a sibling task like fcst from a child
+#       family (e.g. atmos_prod), use bare "fcst" (NOT "../fcst").
 # ============================================================================
 suite gfs_c96_cycle
   family primary
@@ -64,7 +68,7 @@ suite gfs_c96_cycle
         # atmos products f000-f009 (gdas_atmos_prod metatask)
         family atmos_prod
           edit COMPONENT 'atmos'
-          trigger ../fcst == active or ../fcst == complete
+          trigger fcst == active or fcst == complete
           task f000
             edit FHR_LIST '0'
           task f001
@@ -87,7 +91,7 @@ suite gfs_c96_cycle
             edit FHR_LIST '9'
         endfamily               //atmos_prod
         family wave_prod
-          trigger ../fcst == complete
+          trigger fcst == complete
           task wavepostgridded
           task wavepostpnt
         endfamily               //wave_prod
@@ -199,7 +203,7 @@ suite gfs_c96_cycle
         # --- gdas atmos products f000-f009 ---
         family atmos_prod
           edit COMPONENT 'atmos'
-          trigger ../fcst == active or ../fcst == complete
+          trigger fcst == active or fcst == complete
           task f000
             edit FHR_LIST '0'
           task f003
@@ -210,7 +214,7 @@ suite gfs_c96_cycle
             edit FHR_LIST '9'
         endfamily               //atmos_prod
         family wave_prod
-          trigger ../fcst == complete
+          trigger fcst == complete
           task wavepostgridded
           task wavepostpnt
         endfamily               //wave_prod
@@ -270,7 +274,7 @@ suite gfs_c96_cycle
         # --- gfs atmos products (representative groups; expand when templating) ---
         family atmos_prod
           edit COMPONENT 'atmos'
-          trigger ../fcst == active or ../fcst == complete
+          trigger fcst == active or fcst == complete
           task f000_f002
             edit FHR_LIST '0,1,2'
           task f024_f026
@@ -283,7 +287,7 @@ suite gfs_c96_cycle
         # --- gfs ocean products (handled by fcst_manager; products consume COM) ---
         family ocean_prod
           edit COMPONENT 'ocean'
-          trigger ../fcst == complete
+          trigger fcst == complete
           task f006
             edit FHR_LIST '6'
           task f120
@@ -291,14 +295,14 @@ suite gfs_c96_cycle
         endfamily               //ocean_prod
         family ice_prod
           edit COMPONENT 'ice'
-          trigger ../fcst == complete
+          trigger fcst == complete
           task f006
             edit FHR_LIST '6'
           task f120
             edit FHR_LIST '120'
         endfamily               //ice_prod
         family wave_prod
-          trigger ../fcst == complete
+          trigger fcst == complete
           task wavepostgridded
           task wavepostbndpnt
           task wavepostbndpntbll
@@ -326,7 +330,7 @@ suite gfs_c96_cycle
         task eupd
           trigger ediag == complete
         family ecmn
-          trigger ../../gdas/analcalc == complete and ../eupd == complete
+          trigger ../gdas/analcalc == complete and eupd == complete
           task ecen000
             edit FHRGRP '000'
             edit FHRLST '003'
@@ -393,7 +397,7 @@ suite gfs_c96_cycle
         task eupd
           trigger ediag == complete
         family ecmn
-          trigger ../../gfs/analcalc == complete and ../eupd == complete
+          trigger ../gfs/analcalc == complete and eupd == complete
           task ecen000
             edit FHRGRP '000'
             edit FHRLST '003'
@@ -465,7 +469,7 @@ suite gfs_c96_cycle
           trigger atmanlupp == complete
         family atmos_prod
           edit COMPONENT 'atmos'
-          trigger ../fcst == active or ../fcst == complete
+          trigger fcst == active or fcst == complete
           task f000
             edit FHR_LIST '0'
           task f003
@@ -476,7 +480,7 @@ suite gfs_c96_cycle
             edit FHR_LIST '9'
         endfamily               //atmos_prod
         family wave_prod
-          trigger ../fcst == complete
+          trigger fcst == complete
           task wavepostgridded
           task wavepostpnt
         endfamily               //wave_prod
@@ -531,7 +535,7 @@ suite gfs_c96_cycle
           trigger atmanlupp == complete
         family atmos_prod
           edit COMPONENT 'atmos'
-          trigger ../fcst == active or ../fcst == complete
+          trigger fcst == active or fcst == complete
           task f000_f002
             edit FHR_LIST '0,1,2'
           task f024_f026
@@ -543,7 +547,7 @@ suite gfs_c96_cycle
         endfamily               //atmos_prod
         family ocean_prod
           edit COMPONENT 'ocean'
-          trigger ../fcst == complete
+          trigger fcst == complete
           task f006
             edit FHR_LIST '6'
           task f120
@@ -551,14 +555,14 @@ suite gfs_c96_cycle
         endfamily               //ocean_prod
         family ice_prod
           edit COMPONENT 'ice'
-          trigger ../fcst == complete
+          trigger fcst == complete
           task f006
             edit FHR_LIST '6'
           task f120
             edit FHR_LIST '120'
         endfamily               //ice_prod
         family wave_prod
-          trigger ../fcst == complete
+          trigger fcst == complete
           task wavepostgridded
           task wavepostbndpnt
           task wavepostbndpntbll
@@ -585,7 +589,7 @@ suite gfs_c96_cycle
         task eupd
           trigger ediag == complete
         family ecmn
-          trigger ../../gdas/analcalc == complete and ../eupd == complete
+          trigger ../gdas/analcalc == complete and eupd == complete
           task ecen000
             edit FHRGRP '000'
             edit FHRLST '003'
@@ -652,7 +656,7 @@ suite gfs_c96_cycle
         task eupd
           trigger ediag == complete
         family ecmn
-          trigger ../../gfs/analcalc == complete and ../eupd == complete
+          trigger ../gfs/analcalc == complete and eupd == complete
           task ecen000
             edit FHRGRP '000'
             edit FHRLST '003'
