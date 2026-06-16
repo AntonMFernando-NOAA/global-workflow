@@ -59,7 +59,7 @@ suite gfs_v17_test
         family forecast
           task jgfs_fcst
             edit RJN 'forecast'
-            trigger ../../analysis/atmos/jgfs_atmos_analupp==complete
+            trigger ../analysis/atmos/jgfs_atmos_analupp==complete
         endfamily
 
       endfamily
@@ -107,7 +107,7 @@ suite gfs_v17_test
         family forecast
           task jgfs_fcst
             edit RJN 'forecast'
-            trigger ../../analysis/atmos/jgfs_atmos_analupp==complete
+            trigger ../analysis/atmos/jgfs_atmos_analupp==complete
         endfamily
 
       endfamily
