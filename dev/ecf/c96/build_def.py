@@ -36,12 +36,16 @@ the def in place with::
 The output is overwritten and committed alongside this builder.
 """
 
-from __future__ import annotations
+# NOTE: ``from __future__ import annotations`` is intentionally NOT used here
+# because WCOSS2's default Python is 3.6, which doesn't support it.  All type
+# hints below use the typing module's generic forms (List, Tuple, Optional)
+# so the script works on Python 3.6+.
 
 import os
 import re
 from datetime import date
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROD_DEF = REPO_ROOT / "ecf" / "defs" / "gfs_prod.def"
@@ -72,11 +76,11 @@ ECF_PORT = "2137"
 KEEP_ENSMEM = {"001", "002"}
 
 
-def _read_lines(path: Path) -> list[str]:
+def _read_lines(path: Path) -> List[str]:
     return path.read_text().splitlines()
 
 
-def _slice(lines: list[str], rng: tuple[int, int]) -> list[str]:
+def _slice(lines: List[str], rng: Tuple[int, int]) -> List[str]:
     start, end = rng
     return lines[start - 1:end]
 
@@ -93,7 +97,7 @@ _TASK_FHR_RE = re.compile(r"^\s*task\s+\S*_f(\d{3})\s*$")
 _FHR_TOKEN_RE = re.compile(r"_f(\d{3})\b")
 
 
-def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
+def _strip_high_fhr(lines: List[str], cap: int) -> List[str]:
     """Drop event/task blocks above ``cap`` and clamp surviving triggers.
 
     Surviving trigger references that name an fhr above ``cap`` are
@@ -101,7 +105,7 @@ def _strip_high_fhr(lines: list[str], cap: int) -> list[str]:
     truncated suite), which keeps downstream tasks runnable.
     """
     cap_str = f"{cap:03d}"
-    out: list[str] = []
+    out: List[str] = []
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -150,14 +154,14 @@ _TASK_ENKF_FCST_MEM_RE = re.compile(
     r"^(?P<lead>\s*)task\s+jenkfgdas_fcst_mem(?P<mem>\d{3})\s*$")
 
 
-def _strip_unwanted_enkf_members(lines: list[str]) -> list[str]:
+def _strip_unwanted_enkf_members(lines: List[str]) -> List[str]:
     """Drop ``task jenkfgdas_fcst_memNNN`` blocks not in :data:`KEEP_ENSMEM`.
 
     Each task block is the ``task`` line plus its trailing ``edit`` lines
     (ENSMEM, MEMDIR), terminated by the next sibling task / family /
     endfamily / endsuite at the same or shallower indent.
     """
-    out: list[str] = []
+    out: List[str] = []
     i = 0
     while i < len(lines):
         m = _TASK_ENKF_FCST_MEM_RE.match(lines[i])
@@ -193,7 +197,7 @@ def _strip_unwanted_enkf_members(lines: list[str]) -> list[str]:
 _TIME_TRIGGER_RE = re.compile(r"^\s*trigger\s+:TIME\b")
 
 
-def _strip_time_triggers(lines: list[str]) -> list[str]:
+def _strip_time_triggers(lines: List[str]) -> List[str]:
     return [ln for ln in lines if not _TIME_TRIGGER_RE.match(ln)]
 
 
@@ -204,13 +208,13 @@ def _strip_time_triggers(lines: list[str]) -> list[str]:
 _TRIGGER_RE = re.compile(r"^(?P<lead>\s*trigger\s+)(?P<expr>.*\S)\s*$")
 
 
-def _drop_terms_from_triggers(lines: list[str], should_drop) -> list[str]:
+def _drop_terms_from_triggers(lines: List[str], should_drop) -> List[str]:
     """Remove trigger conjuncts where ``should_drop(term)`` is true.
 
     Triggers are split on `` and ``.  ``or`` is left untouched; none of the
     triggers we modify in this builder mix ``or`` with the dropped paths.
     """
-    out: list[str] = []
+    out: List[str] = []
     for line in lines:
         m = _TRIGGER_RE.match(line)
         if not m:
@@ -224,35 +228,35 @@ def _drop_terms_from_triggers(lines: list[str], should_drop) -> list[str]:
     return out
 
 
-def _drop_cross_cycle(lines: list[str], cyc: str) -> list[str]:
+def _drop_cross_cycle(lines: List[str], cyc: str) -> List[str]:
     """Remove cross-cycle terms referencing ``../../../../<cyc>/...``."""
     cross = re.compile(r"^\.\./\.\./\.\./\.\./" + cyc + r"/")
     return _drop_terms_from_triggers(
         lines, lambda term: bool(cross.match(term)))
 
 
-def _drop_terms_matching(lines: list[str], pattern: str) -> list[str]:
+def _drop_terms_matching(lines: List[str], pattern: str) -> List[str]:
     """Remove trigger conjuncts whose text matches ``pattern``."""
     rx = re.compile(pattern)
     return _drop_terms_from_triggers(
         lines, lambda term: bool(rx.search(term)))
 
 
-def _remap_cross_cycle(lines: list[str], src: str, dst: str) -> list[str]:
+def _remap_cross_cycle(lines: List[str], src: str, dst: str) -> List[str]:
     """Rewrite ``../../../../<src>/...`` to ``../../../../<dst>/...``."""
     pat = re.compile(r"(\.\./\.\./\.\./\.\./)" + src + r"/")
     return [pat.sub(r"\g<1>" + dst + "/", ln) for ln in lines]
 
 
-def _rewrite_cycle_end_trigger(lines: list[str], prev_cyc: str | None
-                               ) -> list[str]:
+def _rewrite_cycle_end_trigger(lines: List[str], prev_cyc: Optional[str]
+                               ) -> List[str]:
     """Replace ``cycle_end``'s ``trigger ../<prev>/gdas/forecast == ...`` line.
 
     For ``prev_cyc=None`` (the cold-start cycle) the trigger is dropped
     entirely.  For ``prev_cyc='12'`` (used in the 00Z cycle) the trigger
     is rewritten to reference the 12Z gdas/forecast family.
     """
-    out: list[str] = []
+    out: List[str] = []
     rx = re.compile(
         r"^(\s*)trigger\s+\.\./\d{2}/gdas/forecast\s*==\s*active\s+or\s+"
         r"\.\./\d{2}/gdas/forecast\s*==\s*complete\s*$")
