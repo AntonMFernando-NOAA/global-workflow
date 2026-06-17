@@ -32,7 +32,7 @@ suite gfs_c96_cycle
     # ---- suite-level configuration (dev server + package layout) ----
     edit gfs_ver 'v17.0'
     edit PACKAGEHOME '%HOMEgfs%'
-    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/cycle_scripts'
+    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/scripts'
     edit ECF_INCLUDE '%HOMEgfs%/dev/ecf/c96/include'
     edit NET 'gfs'
     edit RUN 'gfs'
@@ -57,14 +57,14 @@ suite gfs_c96_cycle
       family gdas
         edit RUN 'gdas'
         # cold start: stage ICs, then forecast
-        task stage_ic
-        task waveinit
-          trigger stage_ic == complete
-        task fcst
-          trigger stage_ic == complete and waveinit == complete
+        task jgdas_atmos_prep
+        task jgdas_wave_init
+          trigger jgdas_atmos_prep == complete
+        task jgdas_fcst
+          trigger jgdas_atmos_prep == complete and jgdas_wave_init == complete
         # real-time product copy manager runs alongside the forecast
-        task fcst_manager
-          trigger fcst == active or fcst == complete
+        task jgdas_fcst_fsm
+          trigger jgdas_fcst == active or jgdas_fcst == complete
         # atmos products f000-f009 (gdas_atmos_prod metatask)
         family atmos_prod
           edit COMPONENT 'atmos'
