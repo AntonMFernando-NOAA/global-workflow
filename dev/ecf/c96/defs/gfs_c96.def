@@ -2,12 +2,29 @@
 # Source: ecf/defs/gfs_prod.def (12Z + 00Z, downscaled for C96).
 # Do not edit by hand; regenerate via:
 #   python3 dev/ecf/c96/build_def.py
+#
+# This file is SELF-CONTAINED -- all the variables that used to be
+# applied by dev/ecf/c96/bootstrap.sh are now inlined below.  After
+# loading this def, the only manual step is to ensure DATAROOT,
+# COMROOT, and LOGROOT exist on disk:
+#   mkdir -p /lfs/h2/emc/global/noscrub/anton.fernando/c96_run/{tmp,com,logs}
 suite gfs_c96
   family primary
-    edit gfs_ver 'v17.0'
+    # ---- repo / build paths (resolved at build_def.py runtime) ----
+    edit HOMEgfs '/mnt/mdc-mcp-rag/SCRATCH/Anton.Fernando/global-workflow_gfsv17'
+    edit HOMEglobal '/mnt/mdc-mcp-rag/SCRATCH/Anton.Fernando/global-workflow_gfsv17'
     edit PACKAGEHOME '%HOMEgfs%'
+    edit gfs_ver 'v17.0'
+    # ---- ecflow client / job submission ----
+    edit ECF_LOGHOST 'dlogin01'
+    edit ECF_PORT '2137'
     edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/scripts'
     edit ECF_INCLUDE '%HOMEgfs%/dev/ecf/c96/include'
+    edit ECF_JOB_CMD 'qsub %ECF_JOB% 1> %ECF_JOBOUT% 2>&1'
+    edit ECF_KILL_CMD 'qdel %ECF_RID%'
+    edit ECF_STATUS_CMD 'qstat %ECF_RID% > %ECF_JOB%.stat 2>&1'
+    edit ecflow_ver '5.6.0'
+    # ---- env / project metadata ----
     edit NET 'gfs'
     edit RUN 'gfs'
     edit PROJ 'GFS'
@@ -16,7 +33,22 @@ suite gfs_c96
     edit ENVIR 'prod'
     edit QUEUE 'dev'
     edit QUEUE_ARCH 'dev_transfer'
-    edit OUTPUTDIR '%HOMEgfs%/dev/ecf/c96/output'
+    edit PDY '20260617'
+    # ---- dev workspace (resolved at build_def.py runtime) ----
+    edit DATAROOT '/lfs/h2/emc/global/noscrub/anton.fernando/c96_run/tmp'
+    edit COMROOT '/lfs/h2/emc/global/noscrub/anton.fernando/c96_run/com'
+    edit LOGROOT '/lfs/h2/emc/global/noscrub/anton.fernando/c96_run/logs'
+    edit OUTPUTDIR '/mnt/mdc-mcp-rag/SCRATCH/Anton.Fernando/global-workflow_gfsv17/dev/ecf/c96/output'
+    edit KEEPDATA 'YES'
+    # ---- production-flag stubs (test mode -- never push to NCO) ----
+    edit PARATEST 'NO'
+    edit DBNLOG 'NO'
+    edit SENDDBN 'NO'
+    edit SENDDBN_NTC 'NO'
+    edit SENDCANNEDDBN 'NO'
+    edit COMPATH ' '
+    edit MAILTO ' '
+    edit rrfs_ver ' '
     family 12
       edit CYC '12'
       family gfs
