@@ -32,7 +32,7 @@ HOMEgfs_ABS = str(REPO_ROOT)
 DEV_ROOT = "/lfs/h2/emc/global/noscrub/{}/c48_atm".format(USER)
 EXPDIR_DEFAULT = "{}/expdir".format(DEV_ROOT)
 ECF_FILES = "{}/dev/ecf/c48_atm/scripts".format(HOMEgfs_ABS)
-ECF_INCLUDE = "{}/dev/ecf/c96/include".format(HOMEgfs_ABS)  # reused from c96
+ECF_INCLUDE = "{}/dev/ecf/c48_atm/include".format(HOMEgfs_ABS)
 ECF_LOGHOST = "dlogin01"
 ECF_PORT = "2137"
 

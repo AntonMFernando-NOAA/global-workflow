@@ -19,6 +19,7 @@ can be layered on with confidence that the fundamentals work.
 ```
 dev/ecf/c48_atm/
 ├── build_def.py          # generator, writes def to $EXPDIR
+├── include/              # head.h, tail.h, envir-p1.h (self-contained)
 ├── scripts/              # task wrappers (.ecf)
 │   └── gfs/
 │       ├── init/jgfs_stage_ic.ecf
@@ -28,8 +29,10 @@ dev/ecf/c48_atm/
 └── (defs/gfs_c48_atm.def is gitignored — lives in $EXPDIR)
 ```
 
-The include headers (`head.h`, `tail.h`, `envir-p1.h`) are reused from
-`dev/ecf/c96/include/`. `build_def.py` sets `ECF_INCLUDE` to that path.
+The include headers (`head.h`, `tail.h`, `envir-p1.h`) live in
+`dev/ecf/c48_atm/include/`. `build_def.py` sets `ECF_INCLUDE` to that
+absolute path so the suite is self-contained and doesn't depend on
+any other ecFlow test directory.
 
 ## Usage
 
@@ -60,6 +63,23 @@ qstat -u "${USER}"
 A healthy run shows tasks transitioning through
 `queued` → `submitted` → `active` → `complete` left to right
 along the chain.
+
+## ecFlow include resolution gotcha
+
+ecFlow 5.6 resolves `%include <head.h>` against `$ECF_HOME` first, NOT
+`$ECF_INCLUDE`, even when `$ECF_INCLUDE` is set on the suite. If
+preprocessing aborts with::
+
+    Could not open include file: $ECF_HOME/head.h (No such file or directory)
+
+copy (don't symlink) the three include files into `$ECF_HOME`::
+
+    cp dev/ecf/c48_atm/include/head.h     "${ECF_HOME}/head.h"
+    cp dev/ecf/c48_atm/include/tail.h     "${ECF_HOME}/tail.h"
+    cp dev/ecf/c48_atm/include/envir-p1.h "${ECF_HOME}/envir-p1.h"
+
+Symlinks in `$ECF_HOME` are not consistently honored by the preprocessor;
+real files always work.
 
 ## When something aborts
 
