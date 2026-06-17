@@ -1,0 +1,46 @@
+#PBS -S /bin/bash
+#PBS -N gfs_atmos_product_%CYC%
+#PBS -j oe
+#PBS -q %QUEUE%
+#PBS -A %PROJ%-%PROJENVIR%
+#PBS -l walltime=00:30:00
+#PBS -l select=1:mpiprocs=24:ompthreads=1:ncpus=24
+#PBS -l place=vscatter:exclhost
+#PBS -l debug=true
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh run
+
+module list
+
+############################################################
+# Single product run that covers all forecast hours of the test run.
+# For a small C48_ATM test we run product once after the forecast
+# completes; the J-script handles all output forecast hours.
+############################################################
+export CDATE=${PDY}${cyc}
+export HOMEglobal=${HOMEgfs}
+export COMPONENT=atmos
+export WGF=atmos
+export FHR_LIST="0,3,6"
+export FORECAST_HOUR="${FHR_LIST}"
+export FHR="000"
+
+${HOMEgfs}/jobs/JGLOBAL_ATMOS_PRODUCTS
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>
+%manual
+
+%end

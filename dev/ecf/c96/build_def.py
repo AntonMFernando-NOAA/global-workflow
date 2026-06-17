@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Build dev/ecf/c96/defs/gfs_c96.def from ecf/defs/gfs_prod.def.
+"""Build the C96 ecFlow def file from ecf/defs/gfs_prod.def.
+
+The generated def is *experiment output*, not source -- it goes into the
+EXPDIR (defaulting to $DEV_ROOT/c96_run/expdir/), not back into the repo.
+This mirrors how Rocoto stores its generated XML in EXPDIR and keeps the
+repo clean of per-user / per-cycle artifacts.
+
+Usage::
+
+    # Default location ($EXPDIR/gfs_c96.def or the configured fallback):
+    python3 dev/ecf/c96/build_def.py
+
+    # Custom output path:
+    python3 dev/ecf/c96/build_def.py --out /path/to/gfs_c96.def
 
 Derives a low-resolution 2-cycle ecFlow suite (12Z cold-start + 00Z) from
 the production GFSv17 suite by:
@@ -29,11 +42,12 @@ the production GFSv17 suite by:
   * wrapping the result in a fresh ``gfs_c96`` suite header.
 
 This script is the single source of truth for ``gfs_c96.def``; regenerate
-the def in place with::
+the def via::
 
     python3 dev/ecf/c96/build_def.py
 
-The output is overwritten and committed alongside this builder.
+The generated file is treated as experiment output (lives in EXPDIR), not
+source code; it is excluded from the repo via dev/ecf/c96/.gitignore.
 """
 
 # NOTE: ``from __future__ import annotations`` is intentionally NOT used here
@@ -49,7 +63,8 @@ from typing import List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROD_DEF = REPO_ROOT / "ecf" / "defs" / "gfs_prod.def"
-OUT_DEF = REPO_ROOT / "dev" / "ecf" / "c96" / "defs" / "gfs_c96.def"
+# OUT_DEF is now resolved at runtime in main() so it can be overridden by
+# --out CLI flag or the EXPDIR env var.  See main().
 
 # Cycle-family line ranges in gfs_prod.def (1-indexed, inclusive).
 # These match ``family 00`` / ``family 12`` / closing ``endfamily`` blocks.
@@ -69,6 +84,7 @@ FHR_CAP = 120
 USER = os.environ.get("USER", "anton.fernando")
 HOMEgfs_ABS = str(REPO_ROOT)
 DEV_ROOT = f"/lfs/h2/emc/global/noscrub/{USER}/c96_run"
+EXPDIR_DEFAULT = f"{DEV_ROOT}/expdir"
 ECF_LOGHOST = "dlogin01"   # the login node where the dev ecflow_server lives
 ECF_PORT = "2137"
 
@@ -384,15 +400,33 @@ def build_c96_def() -> str:
 
 
 def main() -> None:
-    OUT_DEF.parent.mkdir(parents=True, exist_ok=True)
-    OUT_DEF.write_text(build_c96_def())
-    n = sum(1 for _ in OUT_DEF.read_text().splitlines())
-    print(f"Wrote {OUT_DEF} ({n} lines)")
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Build the C96 ecFlow def file (writes to EXPDIR, not the repo).",
+    )
+    parser.add_argument(
+        "--out",
+        help="Output path for gfs_c96.def "
+             "(default: $EXPDIR/gfs_c96.def, or "
+             f"{EXPDIR_DEFAULT}/gfs_c96.def if EXPDIR is unset)",
+    )
+    args = parser.parse_args()
+
+    if args.out:
+        out_path = Path(args.out)
+    else:
+        expdir = os.environ.get("EXPDIR", EXPDIR_DEFAULT)
+        out_path = Path(expdir) / "gfs_c96.def"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(build_c96_def())
+    n = sum(1 for _ in out_path.read_text().splitlines())
+    print(f"Wrote {out_path} ({n} lines)")
     print()
     print("Next steps (no bootstrap.sh needed):")
     print(f"  mkdir -p {DEV_ROOT}/{{tmp,com,logs}}")
     print("  ecflow_client --delete=force=yes /gfs_c96 2>/dev/null")
-    print(f"  ecflow_client --load={OUT_DEF.relative_to(REPO_ROOT)}")
+    print(f"  ecflow_client --load={out_path}")
     print("  ecflow_client --suspend=/gfs_c96")
     print("  ecflow_client --resume=/gfs_c96")
     print("  ecflow_client --begin=gfs_c96")
