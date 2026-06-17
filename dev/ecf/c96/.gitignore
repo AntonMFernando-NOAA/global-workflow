@@ -1,4 +1,0 @@
-# build_def.py used to write the generated def into defs/gfs_c96.def under
-# the repo, but the def is per-user / per-cycle output and now lives in
-# $EXPDIR.  Ignore the old in-repo location so a stale copy is never committed.
-defs/gfs_c96.def
