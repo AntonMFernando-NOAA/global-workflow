@@ -18,8 +18,8 @@ suite gfs_c96
     # ---- ecflow client / job submission ----
     edit ECF_LOGHOST 'dlogin01'
     edit ECF_PORT '2137'
-    edit ECF_FILES '%HOMEgfs%/dev/ecf/c96/scripts'
-    edit ECF_INCLUDE '%HOMEgfs%/dev/ecf/c96/include'
+    edit ECF_FILES '/mnt/mdc-mcp-rag/SCRATCH/Anton.Fernando/global-workflow_gfsv17/dev/ecf/c96/scripts'
+    edit ECF_INCLUDE '/mnt/mdc-mcp-rag/SCRATCH/Anton.Fernando/global-workflow_gfsv17/dev/ecf/c96/include'
     edit ECF_JOB_CMD 'qsub %ECF_JOB% 1> %ECF_JOBOUT% 2>&1'
     edit ECF_KILL_CMD 'qdel %ECF_RID%'
     edit ECF_STATUS_CMD 'qstat %ECF_RID% > %ECF_JOB%.stat 2>&1'
