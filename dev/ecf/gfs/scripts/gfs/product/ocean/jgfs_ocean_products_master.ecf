@@ -16,8 +16,11 @@ export cyc="%CYC%"
 ############################################################
 # Load modules
 ############################################################
-#TODO: load only the modules needed for each job
-source ${HOMEgfs}/dev/ush/load_modules.sh run
+module load craype/${craype_ver}
+module load intel/${intel_ver}
+module load cray-mpich/${cray_mpich_ver}
+module load ve/gw/${gw_ve_ver}
+module load netcdf-D/${netcdf_ver}
 
 module list
 export WGF="%WGF%"

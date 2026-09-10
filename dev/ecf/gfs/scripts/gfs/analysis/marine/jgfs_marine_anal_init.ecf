@@ -16,8 +16,11 @@ export cyc="%CYC%"
 ############################################################
 # Load modules
 ############################################################
-#TODO: load only the modules needed for each job
-source ${HOMEgfs}/dev/ush/load_modules.sh ufsda
+module load PrgEnv-intel/${PrgEnv_intel_ver}
+module load intel/${intel_ver}
+module load craype/${craype_ver}
+module load python/${python_ver}
+module load ve/gw/${gw_ve_ver}
 
 module list
 ############################################################
@@ -42,7 +45,7 @@ background fields, observations, and B-matrix inputs for SOCA solver.
 
 TROUBLESHOOTING
 
-Python-based (exglobal_marine_anal_init.py). Check Python
+Python-based (exglobal_marine_analysis_initialize.py). Check Python
 traceback in stdout. Common failures: missing background restart files
 from previous cycle forecast, missing observation files from
 prepoceanobs, or B-matrix files from marine_bmat. If previous cycle
