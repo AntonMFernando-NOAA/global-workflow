@@ -83,7 +83,16 @@ elif [[ ${MACHINE_ID} = gaeac6 ]]; then
     if (! eval module help > /dev/null 2>&1); then
         source /opt/cray/pe/lmod/lmod/init/bash
     fi
-    module reset
+    # "module reset" restores the set named by LMOD_SYSTEM_DEFAULT_MODULES, so
+    # it is only safe when that variable is set.  Shells that arrive without it
+    # keep the modules they already have.
+    set +u
+    if [[ -n "${LMOD_SYSTEM_DEFAULT_MODULES:-}" ]]; then
+        module reset
+    else
+        echo "WARNING: LMOD_SYSTEM_DEFAULT_MODULES is unset on ${MACHINE_ID}; skipping 'module reset'" 1>&2
+    fi
+    set -u
 
 elif [[ ${MACHINE_ID} = expanse* ]]; then
     # We are on SDSC Expanse
