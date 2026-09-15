@@ -1,0 +1,34 @@
+#SBATCH --job-name=enkfgdas_marine_ens_recenter_%CYC%
+#SBATCH --partition=%QUEUE%
+#SBATCH --account=%PROJ%-%PROJENVIR%
+#SBATCH --time=00:30:00
+#SBATCH --nodes=4
+#SBATCH --ntasks-per-node=32
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=500GB
+#SBATCH --exclusive
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh ufsda
+
+module list
+############################################################
+# CALL executable job script here
+############################################################
+export HOMEglobal=${HOMEgfs}
+
+${HOMEgfs}/jobs/JGLOBAL_MARINE_ANALYSIS_ECEN
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>

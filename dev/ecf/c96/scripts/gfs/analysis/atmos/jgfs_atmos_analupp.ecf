@@ -1,0 +1,37 @@
+#SBATCH --job-name=gfs_atmos_analupp_%CYC%
+#SBATCH --partition=%QUEUE%
+#SBATCH --account=%PROJ%-%PROJENVIR%
+#SBATCH --time=00:10:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=120
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=128GB
+#SBATCH --exclusive
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh upp
+
+module list
+export FORECAST_HOUR='0'
+export FHR3='000'
+export UPP_RUN='analysis'
+############################################################
+# CALL executable job script here
+############################################################
+export HOMEglobal=${HOMEgfs}
+
+${HOMEgfs}/jobs/JGLOBAL_ATMOS_UPP
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>

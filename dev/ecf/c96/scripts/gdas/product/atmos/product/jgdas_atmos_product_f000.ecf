@@ -1,0 +1,37 @@
+#SBATCH --job-name=gdas_atmos_product_%CYC%_f%FHR%
+#SBATCH --partition=%QUEUE%
+#SBATCH --account=%PROJ%-%PROJENVIR%
+#SBATCH --time=00:10:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=24
+#SBATCH --cpus-per-task=1
+#SBATCH --exclusive
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh run
+
+module list
+export WGF="%WGF%"
+export FHR_LIST="%FHR_LIST%"
+export FORECAST_HOUR="${FHR_LIST}"
+export COMPONENT=${WGF}
+############################################################
+# CALL executable job script here
+############################################################
+export HOMEglobal=${HOMEgfs}
+
+${HOMEgfs}/jobs/JGLOBAL_ATMOS_PRODUCTS
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>

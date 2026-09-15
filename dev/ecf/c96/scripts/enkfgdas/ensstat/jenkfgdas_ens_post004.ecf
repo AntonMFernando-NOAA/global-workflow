@@ -1,0 +1,40 @@
+#SBATCH --job-name=enkfgdas_ens_post%FHRGRP%_%CYC%
+#SBATCH --partition=%QUEUE%
+#SBATCH --account=%PROJ%-%PROJENVIR%
+#SBATCH --time=00:20:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=128
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=128GB
+#SBATCH --exclusive
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh gsi
+
+module list
+export WGF="%WGF%"
+export FHRGRP="%FHRGRP%"
+export FHRLST="%FHRLST%"
+export FHMIN_EPOS="%FHR%"
+export FHMAX_EPOS="%FHR%"
+export FHOUT_EPOS="%FHR%"
+############################################################
+# CALL executable job script here
+############################################################
+export HOMEglobal=${HOMEgfs}
+
+${HOMEgfs}/jobs/JGDAS_ENKF_POST
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>

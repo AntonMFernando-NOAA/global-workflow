@@ -1,0 +1,33 @@
+#SBATCH --job-name=enkfgdas_atmos_ens_anal_sfc_regrid_%CYC%
+#SBATCH --partition=%QUEUE%
+#SBATCH --account=%PROJ%-%PROJENVIR%
+#SBATCH --time=00:10:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=128
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=128GB
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Load modules
+############################################################
+source ${HOMEgfs}/dev/ush/load_modules.sh gsi
+
+module list
+############################################################
+# CALL executable job script here
+############################################################
+export HOMEglobal=${HOMEgfs}
+
+${HOMEgfs}/jobs/JGLOBAL_ENKF_SFCANL_REGRID
+if [ $? -ne 0 ]; then
+   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
+   ecflow_client --abort
+   exit
+fi
+
+%include <tail.h>

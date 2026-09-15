@@ -1,0 +1,63 @@
+# C48_ATM_ursa.def — ecFlow suite mirroring the C48_ATM Rocoto CI test
+#
+# 7 tasks: stage_ic → fcst → atmos_prod → tracker + genesis → arch_vrfy → cleanup
+# All tasks call the same job card scripts as Rocoto (dev/job_cards/rocoto/*.sh)
+# via wrapper .ecf scripts under dev/ecf/ursa/scripts/.
+#
+# Variables prefixed with % are ecFlow edit variables resolved at runtime.
+# Set ECF_JOB_CMD, ECF_KILL_CMD, ECF_STATUS_CMD via bootstrap_ursa.sh.
+
+suite C48_ATM_ursa
+  # ecFlow server connection
+  edit ECF_LOGHOST '%ECF_HOST%'
+  edit ECF_PORT    '%ECF_PORT%'
+
+  # File locations
+  edit ECF_HOME    '%ECF_HOME%'
+  edit ECF_INCLUDE '%ECF_HOME%/include'
+  edit ECF_FILES   '%ECF_HOME%/scripts'
+  edit ECF_JOBOUT  '%ECF_HOME%/output/%ECF_NAME%.%ECF_TRYNO%'
+
+  # Slurm job submission commands
+  edit ECF_JOB_CMD  'sbatch %ECF_JOB%'
+  edit ECF_KILL_CMD 'scancel %ECF_RID%'
+  edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'
+
+  # Experiment variables (overridden by bootstrap_ursa.sh)
+  edit ENVIR    'test'
+  edit NET      'gfs'
+  edit RUN      'gfs'
+  edit APP      'ATM'
+  edit ACCOUNT  'global'
+  edit QUEUE    'batch'
+  edit CYC      '12'
+  edit PDY      '20210323'
+  edit PSLOT    'C48_ATM_ecflow'
+  edit CASE     'C48'
+  edit FHMAX_GFS '120'
+
+  family gfs
+    edit RUN 'gfs'
+
+    task stage_ic
+
+    task fcst
+      trigger stage_ic == complete
+
+    task atmos_prod
+      trigger fcst == complete
+
+    task tracker
+      trigger atmos_prod == complete
+
+    task genesis
+      trigger atmos_prod == complete
+
+    task arch_vrfy
+      trigger tracker == complete and genesis == complete and atmos_prod == complete
+
+    task cleanup
+      trigger arch_vrfy == complete
+
+  endfamily
+endsuite
