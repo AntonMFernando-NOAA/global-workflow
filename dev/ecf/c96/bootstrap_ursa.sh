@@ -94,30 +94,47 @@ ecflow_client --load="${DEF_FILE}"
 echo "[OK] Suite loaded."
 
 # ── Override variables via ecflow_client --alter ──
-# EMC_USER: the username running this script
-ecflow_client --alter add variable EMC_USER "${USER}" "/${SUITE_NAME}"
+S="/${SUITE_NAME}"
 
-# ECF_LOGHOST: where the ecFlow server runs
-ecflow_client --alter add variable ECF_LOGHOST "${ECF_HOST}" "/${SUITE_NAME}"
+# User and ecFlow server
+ecflow_client --alter add variable EMC_USER "${USER}" "${S}"
+ecflow_client --alter add variable ECF_LOGHOST "${ECF_HOST}" "${S}"
+ecflow_client --alter add variable ECF_PORT "${ECF_PORT}" "${S}"
+ecflow_client --alter add variable ECF_HOME "${ECF_HOME}" "${S}"
+ecflow_client --alter add variable ECF_INCLUDE "${ECF_DIR}/include" "${S}"
+ecflow_client --alter add variable ecflow_ver "5.11.4" "${S}"
 
-# ECF_PORT
-ecflow_client --alter add variable ECF_PORT "${ECF_PORT}" "/${SUITE_NAME}"
+# Slurm job commands (replaces PBS qsub/qdel/qstat)
+ecflow_client --alter add variable ECF_JOB_CMD "sbatch %ECF_JOB% 2>&1" "${S}"
+ecflow_client --alter add variable ECF_KILL_CMD "scancel %ECF_RID%" "${S}"
+ecflow_client --alter add variable ECF_STATUS_CMD "squeue -j %ECF_RID%" "${S}"
 
-# ECF_HOME: working directory for job files
-ecflow_client --alter add variable ECF_HOME "${ECF_HOME}" "/${SUITE_NAME}"
+# WCOSS2 → Ursa path overrides
+ecflow_client --alter add variable PACKAGEHOME "${HOMEgfs}" "${S}"
+ecflow_client --alter add variable OUTPUTDIR "${OUTPUTDIR}" "${S}"
+ecflow_client --alter add variable EXPDIR "${HOMEgfs}/parm/config/gfs" "${S}"
+ecflow_client --alter add variable DATAROOT "/scratch3/NCEPDEV/stmp1/${USER}/ecflow_c96/dataroot" "${S}"
+ecflow_client --alter add variable COMROOT "/scratch3/NCEPDEV/global/noscrub/${USER}/ecflow_c96/com" "${S}"
+ecflow_client --alter add variable MACHINE_SITE "ursa" "${S}"
 
-# ECF_INCLUDE: path to head.h, tail.h, envir-p1.h
-ecflow_client --alter add variable ECF_INCLUDE "${ECF_DIR}/include" "/${SUITE_NAME}"
+# Ursa Slurm queue names (replace WCOSS2 PBS queues)
+ecflow_client --alter add variable QUEUE "batch" "${S}"
+ecflow_client --alter add variable QUEUE_ARCH "batch" "${S}"
 
-# Slurm job commands
-ecflow_client --alter add variable ECF_JOB_CMD "sbatch %ECF_JOB% 2>&1" "/${SUITE_NAME}"
-ecflow_client --alter add variable ECF_KILL_CMD "scancel %ECF_RID%" "/${SUITE_NAME}"
-ecflow_client --alter add variable ECF_STATUS_CMD "squeue -j %ECF_RID%" "/${SUITE_NAME}"
+# Slurm account (Ursa uses project names, not PROJ-PROJENVIR)
+ecflow_client --alter add variable PROJ "global" "${S}"
+ecflow_client --alter add variable PROJENVIR "DEV" "${S}"
 
-# ecflow module version on Ursa
-ecflow_client --alter add variable ecflow_ver "5.11.4" "/${SUITE_NAME}"
+# PDY: set to today's date (YYYYMMDD) for initial testing
+PDY=$(date +%Y%m%d)
+ecflow_client --alter add variable PDY "${PDY}" "${S}"
 
 echo "[OK] Suite variables set for Ursa/Slurm."
+echo "  PACKAGEHOME: ${HOMEgfs}"
+echo "  OUTPUTDIR:   ${OUTPUTDIR}"
+echo "  EXPDIR:      ${HOMEgfs}/parm/config/gfs"
+echo "  QUEUE:       batch"
+echo "  PDY:         ${PDY}"
 
 # ── Optionally begin the suite ──
 if ${LOAD_ONLY}; then

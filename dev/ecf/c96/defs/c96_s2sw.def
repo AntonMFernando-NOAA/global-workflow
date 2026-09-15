@@ -12,12 +12,12 @@ suite c96_s2sw
   edit gfs_ver 'v17.0'
   edit NET 'gfs'
   edit PROJ 'global'
-  edit PROJENVIR 'dev'
+  edit PROJENVIR 'DEV'
   edit MACHINE_SITE 'ursa'
   edit ENVIR 'test'
   edit QUEUE 'batch'
   edit QUEUE_ARCH 'service'
-  edit OUTPUTDIR '/scratch3/NCEPDEV/global/noscrub/%EMC_USER%/ecflow_c96/output'
+  edit OUTPUTDIR '/scratch3/NCEPDEV/global/noscrub/%EMC_USER%/ecflow_c96/output/today'
   edit EXPDIR '/scratch3/NCEPDEV/global/noscrub/%EMC_USER%/global-workflow/parm/config/gfs'
 
   family 12
@@ -631,6 +631,7 @@ suite c96_s2sw
               event 718 release_gfs_ice_product_f114
               event 719 release_gfs_ice_product_f120
             task jgfs_fcst
+              event 1500 release_gfs_fcst_manager
               trigger ../analysis/atmos/jgfs_atmos_analupp == complete and ../init == complete and ../analysis/marine == complete
             task jgfs_fcst_manager
               trigger jgfs_fcst:release_gfs_fcst_manager
@@ -1131,127 +1132,127 @@ suite c96_s2sw
               edit WGF 'ocean'
               task jgfs_ocean_product_f006
                 edit FHR '006'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f006
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f006
               task jgfs_ocean_product_f012
                 edit FHR '012'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f012
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f012
               task jgfs_ocean_product_f018
                 edit FHR '018'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f018
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f018
               task jgfs_ocean_product_f024
                 edit FHR '024'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f024
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f024
               task jgfs_ocean_product_f030
                 edit FHR '030'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f030
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f030
               task jgfs_ocean_product_f036
                 edit FHR '036'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f036
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f036
               task jgfs_ocean_product_f042
                 edit FHR '042'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f042
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f042
               task jgfs_ocean_product_f048
                 edit FHR '048'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f048
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f048
               task jgfs_ocean_product_f054
                 edit FHR '054'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f054
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f054
               task jgfs_ocean_product_f060
                 edit FHR '060'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f060
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f060
               task jgfs_ocean_product_f066
                 edit FHR '066'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f066
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f066
               task jgfs_ocean_product_f072
                 edit FHR '072'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f072
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f072
               task jgfs_ocean_product_f078
                 edit FHR '078'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f078
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f078
               task jgfs_ocean_product_f084
                 edit FHR '084'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f084
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f084
               task jgfs_ocean_product_f090
                 edit FHR '090'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f090
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f090
               task jgfs_ocean_product_f096
                 edit FHR '096'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f096
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f096
               task jgfs_ocean_product_f102
                 edit FHR '102'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f102
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f102
               task jgfs_ocean_product_f108
                 edit FHR '108'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f108
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f108
               task jgfs_ocean_product_f114
                 edit FHR '114'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f114
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f114
               task jgfs_ocean_product_f120
                 edit FHR '120'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f120
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f120
             endfamily
             family ice
               edit WGF 'ice'
               task jgfs_ice_product_f006
                 edit FHR '006'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f006
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f006
               task jgfs_ice_product_f012
                 edit FHR '012'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f012
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f012
               task jgfs_ice_product_f018
                 edit FHR '018'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f018
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f018
               task jgfs_ice_product_f024
                 edit FHR '024'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f024
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f024
               task jgfs_ice_product_f030
                 edit FHR '030'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f030
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f030
               task jgfs_ice_product_f036
                 edit FHR '036'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f036
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f036
               task jgfs_ice_product_f042
                 edit FHR '042'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f042
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f042
               task jgfs_ice_product_f048
                 edit FHR '048'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f048
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f048
               task jgfs_ice_product_f054
                 edit FHR '054'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f054
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f054
               task jgfs_ice_product_f060
                 edit FHR '060'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f060
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f060
               task jgfs_ice_product_f066
                 edit FHR '066'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f066
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f066
               task jgfs_ice_product_f072
                 edit FHR '072'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f072
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f072
               task jgfs_ice_product_f078
                 edit FHR '078'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f078
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f078
               task jgfs_ice_product_f084
                 edit FHR '084'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f084
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f084
               task jgfs_ice_product_f090
                 edit FHR '090'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f090
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f090
               task jgfs_ice_product_f096
                 edit FHR '096'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f096
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f096
               task jgfs_ice_product_f102
                 edit FHR '102'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f102
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f102
               task jgfs_ice_product_f108
                 edit FHR '108'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f108
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f108
               task jgfs_ice_product_f114
                 edit FHR '114'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f114
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f114
               task jgfs_ice_product_f120
                 edit FHR '120'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f120
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f120
             endfamily
             family wave
               edit WGF 'wave'
@@ -1622,9 +1623,9 @@ suite c96_s2sw
               endfamily
               family station
                 task jgfs_wave_postpnt
-                  trigger ../../forecast/jgfs_fcst == complete
+                  trigger ../../../forecast/jgfs_fcst == complete
                 task jgfs_wave_postbndpnt
-                  trigger ../../forecast/jgfs_fcst == complete
+                  trigger ../../../forecast/jgfs_fcst == complete
                 task jgfs_wave_postbndpntbll
                   trigger jgfs_wave_postbndpnt == complete
               endfamily
@@ -1910,17 +1911,17 @@ suite c96_s2sw
           edit WGF 'enkf'
           family analysis
             task jenkfgfs_atmos_ens_observer
-              trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../12/enkfgdas/ensstat == complete
+              trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../12/enkfgdas/ensstat == complete
             task jenkfgfs_snow_anal_ens
-              trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../12/enkfgdas/ensstat == complete
+              trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../12/enkfgdas/ensstat == complete
             task jenkfgfs_atmos_diag_ens
               trigger jenkfgfs_atmos_ens_observer == complete
             task jenkfgfs_atmos_ens_update
               trigger jenkfgfs_atmos_diag_ens == complete
             task jenkfgfs_marine_ens_recenter
-              trigger ../../../gdas/analysis/marine/jgdas_marine_bmat_init == complete
+              trigger ../../gdas/analysis/marine/jgdas_marine_bmat_init == complete
             task jenkfgfs_atmos_ens_anal_sfc_gcycle
-              trigger jenkfgfs_snow_anal_ens == complete and ../../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete
+              trigger jenkfgfs_snow_anal_ens == complete and ../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete
           endfamily
         endfamily
   endfamily
@@ -2268,6 +2269,7 @@ suite c96_s2sw
               event 718 release_gfs_ice_product_f114
               event 719 release_gfs_ice_product_f120
             task jgfs_fcst
+              event 1500 release_gfs_fcst_manager
               trigger ../analysis/atmos/jgfs_atmos_analupp == complete and ../init == complete and ../analysis/marine == complete
             task jgfs_fcst_manager
               trigger jgfs_fcst:release_gfs_fcst_manager
@@ -2768,127 +2770,127 @@ suite c96_s2sw
               edit WGF 'ocean'
               task jgfs_ocean_product_f006
                 edit FHR '006'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f006
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f006
               task jgfs_ocean_product_f012
                 edit FHR '012'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f012
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f012
               task jgfs_ocean_product_f018
                 edit FHR '018'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f018
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f018
               task jgfs_ocean_product_f024
                 edit FHR '024'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f024
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f024
               task jgfs_ocean_product_f030
                 edit FHR '030'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f030
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f030
               task jgfs_ocean_product_f036
                 edit FHR '036'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f036
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f036
               task jgfs_ocean_product_f042
                 edit FHR '042'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f042
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f042
               task jgfs_ocean_product_f048
                 edit FHR '048'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f048
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f048
               task jgfs_ocean_product_f054
                 edit FHR '054'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f054
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f054
               task jgfs_ocean_product_f060
                 edit FHR '060'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f060
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f060
               task jgfs_ocean_product_f066
                 edit FHR '066'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f066
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f066
               task jgfs_ocean_product_f072
                 edit FHR '072'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f072
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f072
               task jgfs_ocean_product_f078
                 edit FHR '078'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f078
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f078
               task jgfs_ocean_product_f084
                 edit FHR '084'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f084
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f084
               task jgfs_ocean_product_f090
                 edit FHR '090'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f090
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f090
               task jgfs_ocean_product_f096
                 edit FHR '096'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f096
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f096
               task jgfs_ocean_product_f102
                 edit FHR '102'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f102
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f102
               task jgfs_ocean_product_f108
                 edit FHR '108'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f108
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f108
               task jgfs_ocean_product_f114
                 edit FHR '114'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f114
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f114
               task jgfs_ocean_product_f120
                 edit FHR '120'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f120
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ocean_product_f120
             endfamily
             family ice
               edit WGF 'ice'
               task jgfs_ice_product_f006
                 edit FHR '006'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f006
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f006
               task jgfs_ice_product_f012
                 edit FHR '012'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f012
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f012
               task jgfs_ice_product_f018
                 edit FHR '018'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f018
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f018
               task jgfs_ice_product_f024
                 edit FHR '024'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f024
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f024
               task jgfs_ice_product_f030
                 edit FHR '030'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f030
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f030
               task jgfs_ice_product_f036
                 edit FHR '036'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f036
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f036
               task jgfs_ice_product_f042
                 edit FHR '042'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f042
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f042
               task jgfs_ice_product_f048
                 edit FHR '048'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f048
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f048
               task jgfs_ice_product_f054
                 edit FHR '054'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f054
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f054
               task jgfs_ice_product_f060
                 edit FHR '060'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f060
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f060
               task jgfs_ice_product_f066
                 edit FHR '066'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f066
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f066
               task jgfs_ice_product_f072
                 edit FHR '072'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f072
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f072
               task jgfs_ice_product_f078
                 edit FHR '078'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f078
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f078
               task jgfs_ice_product_f084
                 edit FHR '084'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f084
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f084
               task jgfs_ice_product_f090
                 edit FHR '090'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f090
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f090
               task jgfs_ice_product_f096
                 edit FHR '096'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f096
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f096
               task jgfs_ice_product_f102
                 edit FHR '102'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f102
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f102
               task jgfs_ice_product_f108
                 edit FHR '108'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f108
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f108
               task jgfs_ice_product_f114
                 edit FHR '114'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f114
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f114
               task jgfs_ice_product_f120
                 edit FHR '120'
-                trigger ../../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f120
+                trigger ../../forecast/jgfs_fcst_fsm:release_gfs_ice_product_f120
             endfamily
             family wave
               edit WGF 'wave'
@@ -3259,9 +3261,9 @@ suite c96_s2sw
               endfamily
               family station
                 task jgfs_wave_postpnt
-                  trigger ../../forecast/jgfs_fcst == complete
+                  trigger ../../../forecast/jgfs_fcst == complete
                 task jgfs_wave_postbndpnt
-                  trigger ../../forecast/jgfs_fcst == complete
+                  trigger ../../../forecast/jgfs_fcst == complete
                 task jgfs_wave_postbndpntbll
                   trigger jgfs_wave_postbndpnt == complete
               endfamily
@@ -3547,17 +3549,17 @@ suite c96_s2sw
           edit WGF 'enkf'
           family analysis
             task jenkfgfs_atmos_ens_observer
-              trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../18/enkfgdas/ensstat == complete
+              trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../18/enkfgdas/ensstat == complete
             task jenkfgfs_snow_anal_ens
-              trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../18/enkfgdas/ensstat == complete
+              trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../18/enkfgdas/ensstat == complete
             task jenkfgfs_atmos_diag_ens
               trigger jenkfgfs_atmos_ens_observer == complete
             task jenkfgfs_atmos_ens_update
               trigger jenkfgfs_atmos_diag_ens == complete
             task jenkfgfs_marine_ens_recenter
-              trigger ../../../gdas/analysis/marine/jgdas_marine_bmat_init == complete
+              trigger ../../gdas/analysis/marine/jgdas_marine_bmat_init == complete
             task jenkfgfs_atmos_ens_anal_sfc_gcycle
-              trigger jenkfgfs_snow_anal_ens == complete and ../../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete
+              trigger jenkfgfs_snow_anal_ens == complete and ../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete
           endfamily
         endfamily
   endfamily

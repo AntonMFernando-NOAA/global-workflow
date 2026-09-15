@@ -14,8 +14,7 @@ export cyc="%CYC%"
 ############################################################
 # Load modules
 ############################################################
-module load intel/${intel_ver}
-module load craype/${craype_ver}
+source ${HOMEgfs}/dev/ush/load_modules.sh run
 
 module list
 export RJN='%RJN%'

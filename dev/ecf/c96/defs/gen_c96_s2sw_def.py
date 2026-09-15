@@ -98,21 +98,29 @@ def write_wave_gridded_tasks(f, lv, run, fhrs, fsm_task):
 
 
 def write_ocean_tasks(f, lv, run, fhrs, fsm_task):
-    """Write per-forecast-hour ocean product tasks."""
+    """Write per-forecast-hour ocean product tasks.
+
+    Ocean tasks sit at product/ocean/ (2 levels below the run family),
+    so the relative path to forecast/ is ../../forecast/.
+    """
     for fhr in fhrs:
         fstr = f"{fhr:03d}"
         f.write(f"{indent(lv)}task j{run}_ocean_product_f{fstr}\n")
         f.write(f"{indent(lv+1)}edit FHR '{fstr}'\n")
-        f.write(f"{indent(lv+1)}trigger ../../../forecast/{fsm_task}:release_{run}_ocean_product_f{fstr}\n")
+        f.write(f"{indent(lv+1)}trigger ../../forecast/{fsm_task}:release_{run}_ocean_product_f{fstr}\n")
 
 
 def write_ice_tasks(f, lv, run, fhrs, fsm_task):
-    """Write per-forecast-hour ice product tasks."""
+    """Write per-forecast-hour ice product tasks.
+
+    Ice tasks sit at product/ice/ (2 levels below the run family),
+    so the relative path to forecast/ is ../../forecast/.
+    """
     for fhr in fhrs:
         fstr = f"{fhr:03d}"
         f.write(f"{indent(lv)}task j{run}_ice_product_f{fstr}\n")
         f.write(f"{indent(lv+1)}edit FHR '{fstr}'\n")
-        f.write(f"{indent(lv+1)}trigger ../../../forecast/{fsm_task}:release_{run}_ice_product_f{fstr}\n")
+        f.write(f"{indent(lv+1)}trigger ../../forecast/{fsm_task}:release_{run}_ice_product_f{fstr}\n")
 
 
 # ── GFS family ──────────────────────────────────────────────
@@ -197,8 +205,9 @@ def write_gfs_family(f, lv, cyc, prev_cyc):
     write_ocean_fsm_events(f, lv+3, "gfs", ocn_fhrs)
     write_ice_fsm_events(f, lv+3, "gfs", ice_fhrs)
 
-    # forecast task
+    # forecast task — carries the release_gfs_fcst_manager event for jgfs_fcst_manager
     f.write(f"{indent(lv+2)}task jgfs_fcst\n")
+    f.write(f"{indent(lv+3)}event 1500 release_gfs_fcst_manager\n")
     f.write(f"{indent(lv+3)}trigger ../analysis/atmos/jgfs_atmos_analupp == complete and ../init == complete and ../analysis/marine == complete\n")
 
     # forecast manager
@@ -240,9 +249,9 @@ def write_gfs_family(f, lv, cyc, prev_cyc):
     f.write(f"{indent(lv+3)}endfamily\n")
     f.write(f"{indent(lv+3)}family station\n")
     f.write(f"{indent(lv+4)}task jgfs_wave_postpnt\n")
-    f.write(f"{indent(lv+5)}trigger ../../forecast/jgfs_fcst == complete\n")
+    f.write(f"{indent(lv+5)}trigger ../../../forecast/jgfs_fcst == complete\n")
     f.write(f"{indent(lv+4)}task jgfs_wave_postbndpnt\n")
-    f.write(f"{indent(lv+5)}trigger ../../forecast/jgfs_fcst == complete\n")
+    f.write(f"{indent(lv+5)}trigger ../../../forecast/jgfs_fcst == complete\n")
     f.write(f"{indent(lv+4)}task jgfs_wave_postbndpntbll\n")
     f.write(f"{indent(lv+5)}trigger jgfs_wave_postbndpnt == complete\n")
     f.write(f"{indent(lv+3)}endfamily\n")
@@ -490,24 +499,28 @@ def write_enkfgdas_family(f, lv, cyc, prev_cyc, nens=2, is_cold_start=False):
 
 # ── EnKFGFS family (no efcs/epos/echgres — just analysis) ──
 def write_enkfgfs_family(f, lv, cyc, prev_cyc, nens=2):
-    """Write the enkfgfs family."""
+    """Write the enkfgfs family.
+
+    enkfgfs sits at CYC/enkfgfs/, so cross-references to gdas use
+    ../../gdas/ (analysis→enkfgfs→CYC, then down to gdas).
+    """
     f.write(f"{indent(lv)}family enkfgfs\n")
     f.write(f"{indent(lv+1)}edit RUN 'enkfgfs'\n")
     f.write(f"{indent(lv+1)}edit WGF 'enkf'\n")
 
     f.write(f"{indent(lv+1)}family analysis\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_atmos_ens_observer\n")
-    f.write(f"{indent(lv+3)}trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../{prev_cyc}/enkfgdas/ensstat == complete\n")
+    f.write(f"{indent(lv+3)}trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../{prev_cyc}/enkfgdas/ensstat == complete\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_snow_anal_ens\n")
-    f.write(f"{indent(lv+3)}trigger ../../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../../{prev_cyc}/enkfgdas/ensstat == complete\n")
+    f.write(f"{indent(lv+3)}trigger ../../gdas/prep/atmos/jgdas_atmos_emcsfc_sfc_prep == complete and ../../../{prev_cyc}/enkfgdas/ensstat == complete\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_atmos_diag_ens\n")
     f.write(f"{indent(lv+3)}trigger jenkfgfs_atmos_ens_observer == complete\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_atmos_ens_update\n")
     f.write(f"{indent(lv+3)}trigger jenkfgfs_atmos_diag_ens == complete\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_marine_ens_recenter\n")
-    f.write(f"{indent(lv+3)}trigger ../../../gdas/analysis/marine/jgdas_marine_bmat_init == complete\n")
+    f.write(f"{indent(lv+3)}trigger ../../gdas/analysis/marine/jgdas_marine_bmat_init == complete\n")
     f.write(f"{indent(lv+2)}task jenkfgfs_atmos_ens_anal_sfc_gcycle\n")
-    f.write(f"{indent(lv+3)}trigger jenkfgfs_snow_anal_ens == complete and ../../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete\n")
+    f.write(f"{indent(lv+3)}trigger jenkfgfs_snow_anal_ens == complete and ../../gdas/analysis/atmos/jgdas_atmos_anal_calc == complete\n")
     f.write(f"{indent(lv+1)}endfamily\n")
 
     f.write(f"{indent(lv)}endfamily\n")
