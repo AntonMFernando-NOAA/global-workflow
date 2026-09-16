@@ -1,17 +1,17 @@
 #!/bin/bash
-# bootstrap_ursa.sh — Load and begin the C48_ATM ecFlow suite on Ursa
+# bootstrap_ursa.sh — Create experiment, load, and begin the C48_ATM ecFlow
+# suite on Ursa.
 #
 # Prerequisites:
 #   1. ecFlow server running on uecflow01 (see ~/ecflow_ursa.env)
-#   2. Experiment created via setup_expt.py (EXPDIR populated with config files)
-#   3. Initial conditions staged or ICSDIR set
+#   2. global-workflow built and linked (build_all.sh + link_workflow.sh)
 #
 # Usage:
-#   source ~/ecflow_ursa.env   # sets ECF_HOST, ECF_PORT, ECF_HOME, HOMEgfs
-#   cd $HOMEgfs/dev/ecf/ursa
-#   bash bootstrap_ursa.sh [--load-only]
+#   source ~/ecflow_ursa.env
+#   bash dev/ecf/ursa/bootstrap_ursa.sh [--load-only]
 #
-# With --load-only, loads the .def but does not begin the suite.
+# With --load-only, creates the experiment and loads the .def but does not
+# begin the suite.
 
 set -eu
 
@@ -30,60 +30,88 @@ if [[ "${1:-}" == "--load-only" ]]; then
   LOAD_ONLY=true
 fi
 
-# ── Ensure output directory exists ──
-mkdir -p "${ECF_HOME}/output"
+PSLOT="${PSLOT:-C48_ATM_ecflow}"
+RUNTESTS="$(cd "${HOMEgfs}/.." && pwd)/RUNTESTS"
+EXPDIR="${RUNTESTS}/EXPDIR/${PSLOT}"
+COMROOT="${RUNTESTS}/COMROOT"
+YAML_FILE="${HOMEgfs}/dev/ci/cases/pr/C48_ATM_ecflow.yaml"
 
 echo "=== ecFlow C48_ATM suite bootstrap (Ursa) ==="
 echo "  ECF_HOST:    ${ECF_HOST}"
 echo "  ECF_PORT:    ${ECF_PORT}"
 echo "  ECF_HOME:    ${ECF_HOME}"
 echo "  HOMEgfs:     ${HOMEgfs}"
-echo "  DEF_FILE:    ${DEF_FILE}"
+echo "  PSLOT:       ${PSLOT}"
+echo "  RUNTESTS:    ${RUNTESTS}"
+echo "  EXPDIR:      ${EXPDIR}"
+echo "  COMROOT:     ${COMROOT}"
 echo ""
 
-# ── Verify server is reachable ──
-echo "[1/4] Pinging ecFlow server..."
+# ── Step 1: Create the experiment ──
+echo "[1/5] Creating experiment via create_experiment.py..."
+if [[ -d "${EXPDIR}" ]]; then
+  echo "  EXPDIR already exists, recreating with --overwrite."
+fi
+mkdir -p "${RUNTESTS}"
+
+PYTHONPATH="${HOMEgfs}/sorc/wxflow/src:${HOMEgfs}/ush/python:${HOMEgfs}/dev/workflow"
+export PYTHONPATH
+
+pslot="${PSLOT}" RUNTESTS="${RUNTESTS}" \
+  python3 "${HOMEgfs}/dev/workflow/create_experiment.py" \
+  -y "${YAML_FILE}" --overwrite
+
+if [[ ! -f "${EXPDIR}/config.base" ]]; then
+  echo "[ERROR] config.base not found in ${EXPDIR}."
+  echo "  create_experiment.py may have failed."
+  exit 1
+fi
+echo "  Experiment created in ${EXPDIR}."
+
+# ── Step 2: Verify ecFlow server is reachable ──
+echo "[2/5] Pinging ecFlow server..."
 ecflow_client --ping
 echo "  Server is alive."
 
-# ── Override edit variables for Ursa paths ──
-# These are written into the .def via ecflow_client --alter after loading.
-# Adjust EXPDIR, COMROOT, PSLOT, ICSDIR to match your experiment.
-PSLOT="${PSLOT:-C48_ATM_ecflow}"
-EXPDIR="${EXPDIR:-${HOMEgfs}/RUNTESTS/EXPDIR/${PSLOT}}"
-COMROOT="${COMROOT:-${HOMEgfs}/RUNTESTS/COMROOT}"
-
-# ── Load the suite definition ──
-echo "[2/4] Loading suite definition..."
-# Delete any existing suite of the same name before loading
+# ── Step 3: Load the suite definition ──
+echo "[3/5] Loading suite definition..."
+mkdir -p "${ECF_HOME}/output"
 ecflow_client --delete /C48_ATM_ursa 2> /dev/null || true
 ecflow_client --load="${DEF_FILE}"
 echo "  Suite C48_ATM_ursa loaded."
 
-# ── Apply runtime variable overrides ──
-echo "[3/4] Applying Ursa overrides..."
+# ── Step 4: Apply runtime variable overrides ──
+echo "[4/5] Applying Ursa overrides..."
 SUITE="/C48_ATM_ursa"
 
-ecflow_client --alter add variable ECF_HOME    "${ECF_HOME}"    "${SUITE}"
+# ecFlow server and file locations
+ecflow_client --alter add variable ECF_HOME    "${ECF_HOME}"           "${SUITE}"
 ecflow_client --alter add variable ECF_INCLUDE "${SCRIPT_DIR}/include" "${SUITE}"
 ecflow_client --alter add variable ECF_FILES   "${SCRIPT_DIR}/scripts" "${SUITE}"
-ecflow_client --alter add variable ECF_LOGHOST "${ECF_HOST}"    "${SUITE}"
-ecflow_client --alter add variable ECF_PORT    "${ECF_PORT}"    "${SUITE}"
+ecflow_client --alter add variable ECF_LOGHOST "${ECF_HOST}"           "${SUITE}"
+ecflow_client --alter add variable ECF_PORT    "${ECF_PORT}"           "${SUITE}"
+
+# Experiment paths and identity
 ecflow_client --alter add variable HOMEglobal  "${HOMEgfs}"     "${SUITE}"
 ecflow_client --alter add variable EXPDIR      "${EXPDIR}"      "${SUITE}"
 ecflow_client --alter add variable COMROOT     "${COMROOT}"     "${SUITE}"
 ecflow_client --alter add variable PSLOT       "${PSLOT}"       "${SUITE}"
+
+# Slurm account and partition
 ecflow_client --alter add variable ACCOUNT     "${HPC_ACCOUNT:-fv3-cpu}" "${SUITE}"
-ecflow_client --alter add variable QUEUE        "${PARTITION_BATCH:-u1-service}" "${SUITE}"
+ecflow_client --alter add variable QUEUE       "${PARTITION_BATCH:-u1-service}" "${SUITE}"
+
+# Variables consumed by J-Jobs (exported into the Slurm job environment)
+ecflow_client --alter add variable DATAROOT    "${RUNTESTS}/RUNDIRS/${PSLOT}" "${SUITE}"
 
 echo "  Variables set."
 
-# ── Begin the suite ──
+# ── Step 5: Begin the suite ──
 if ${LOAD_ONLY}; then
-  echo "[4/4] --load-only specified, suite NOT started."
+  echo "[5/5] --load-only specified, suite NOT started."
   echo "  To begin: ecflow_client --begin=C48_ATM_ursa"
 else
-  echo "[4/4] Beginning suite..."
+  echo "[5/5] Beginning suite..."
   ecflow_client --begin=C48_ATM_ursa
   echo "  Suite C48_ATM_ursa is running."
 fi
