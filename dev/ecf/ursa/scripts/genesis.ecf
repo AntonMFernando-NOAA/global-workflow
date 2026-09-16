@@ -1,12 +1,4 @@
-#SBATCH --job-name=%RUN%_genesis_%CYC%
-#SBATCH --account=%ACCOUNT%
-#SBATCH --partition=%QUEUE%
-#SBATCH --time=00:40:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=1
-#SBATCH --mem=20G
-
+%include <slurm_ursa.h>
 %include <head_ursa.h>
 %include <envir_ursa.h>
 

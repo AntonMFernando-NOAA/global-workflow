@@ -1,5 +1,4 @@
 %include <slurm_ursa.h>
-#SBATCH --exclusive
 %include <head_ursa.h>
 %include <envir_ursa.h>
 

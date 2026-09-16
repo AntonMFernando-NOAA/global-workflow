@@ -1,12 +1,4 @@
-#SBATCH --job-name=%RUN%_atmos_prod_%CYC%
-#SBATCH --account=%ACCOUNT%
-#SBATCH --partition=%QUEUE%
-#SBATCH --time=02:00:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=24
-#SBATCH --cpus-per-task=1
-#SBATCH --exclusive
-
+%include <slurm_ursa.h>
 %include <head_ursa.h>
 %include <envir_ursa.h>
 
@@ -23,8 +15,7 @@ fi
 
 export job="atmos_products"
 
-# In Rocoto this is a metatask that fans over forecast hour groups.
-# For ecFlow we run all forecast hours serially within this single task.
+# Run all forecast hours serially within this single task
 export FORECAST_HOUR jobid
 fhmax=%FHMAX_GFS%
 fhr=0
