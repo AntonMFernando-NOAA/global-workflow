@@ -55,7 +55,9 @@ COMROOT="${COMROOT:-${HOMEgfs}/RUNTESTS/COMROOT}"
 
 # ── Load the suite definition ──
 echo "[2/4] Loading suite definition..."
-ecflow_client --load="${DEF_FILE}" --force
+# Delete any existing suite of the same name before loading
+ecflow_client --delete /C48_ATM_ursa 2> /dev/null || true
+ecflow_client --load="${DEF_FILE}"
 echo "  Suite C48_ATM_ursa loaded."
 
 # ── Apply runtime variable overrides ──
