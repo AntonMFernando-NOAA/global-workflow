@@ -115,7 +115,7 @@ ecflow_client --alter add variable PSLOT       "${PSLOT}"       "${SUITE}"
 
 # Slurm account and partition
 ecflow_client --alter add variable ACCOUNT     "${HPC_ACCOUNT:-fv3-cpu}" "${SUITE}"
-ecflow_client --alter add variable QUEUE       "${PARTITION_BATCH:-u1-service}" "${SUITE}"
+ecflow_client --alter add variable QUEUE       "${PARTITION_BATCH:-u1-compute}" "${SUITE}"
 
 # Variables consumed by J-Jobs (exported into the Slurm job environment)
 ecflow_client --alter add variable DATAROOT    "${RUNTESTS}/RUNDIRS/${PSLOT}" "${SUITE}"
