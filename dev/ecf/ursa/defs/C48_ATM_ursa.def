@@ -27,8 +27,8 @@ suite C48_ATM_ursa
   edit NET      'gfs'
   edit RUN      'gfs'
   edit APP      'ATM'
-  edit ACCOUNT  'global'
-  edit QUEUE    'u1-compute'
+  edit ACCOUNT  'fv3-cpu'
+  edit QUEUE    'service'
   edit CYC      '12'
   edit PDY      '20210323'
   edit PSLOT    'C48_ATM_ecflow'
@@ -50,12 +50,14 @@ suite C48_ATM_ursa
 
     task fcst
       edit TASK 'fcst'
+      edit QUEUE 'u1-compute'
       edit WALLTIME '03:00:00'
       edit EXCLUSIVE 'YES'
       trigger stage_ic == complete
 
     task atmos_prod
       edit TASK 'atmos_prod'
+      edit QUEUE 'u1-compute'
       edit WALLTIME '02:00:00'
       edit NODES '1'
       edit NTASKS '24'
