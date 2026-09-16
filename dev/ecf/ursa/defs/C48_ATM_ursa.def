@@ -28,7 +28,7 @@ suite C48_ATM_ursa
   edit RUN      'gfs'
   edit APP      'ATM'
   edit ACCOUNT  'fv3-cpu'
-  edit QUEUE    'service'
+  edit QUEUE    'u1-service'
   edit CYC      '12'
   edit PDY      '20210323'
   edit PSLOT    'C48_ATM_ecflow'
