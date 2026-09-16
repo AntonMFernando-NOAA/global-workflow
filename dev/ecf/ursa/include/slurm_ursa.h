@@ -6,4 +6,5 @@
 #SBATCH --nodes=%NODES%
 #SBATCH --ntasks-per-node=%NTASKS%
 #SBATCH --cpus-per-task=%CPUS_PER_TASK%
+#SBATCH --output=%ECF_JOBOUT%
 #SBATCH --export=NONE
