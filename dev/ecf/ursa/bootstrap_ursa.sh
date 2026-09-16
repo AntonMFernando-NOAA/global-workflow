@@ -54,8 +54,12 @@ if [[ -d "${EXPDIR}" ]]; then
 fi
 mkdir -p "${RUNTESTS}"
 
-PYTHONPATH="${HOMEgfs}/sorc/wxflow/src:${HOMEgfs}/ush/python:${HOMEgfs}/dev/workflow"
-export PYTHONPATH
+# Load the workflow setup module (provides jinja2 and other dependencies)
+set +eu
+source "${HOMEgfs}/dev/ush/gw_setup.sh"
+set -eu
+
+export PYTHONPATH="${HOMEgfs}/sorc/wxflow/src:${HOMEgfs}/ush/python:${HOMEgfs}/dev/workflow${PYTHONPATH:+:${PYTHONPATH}}"
 
 pslot="${PSLOT}" RUNTESTS="${RUNTESTS}" \
   python3 "${HOMEgfs}/dev/workflow/create_experiment.py" \
