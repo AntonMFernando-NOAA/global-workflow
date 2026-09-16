@@ -20,10 +20,14 @@ export ECF_JOBOUT=%ECF_JOBOUT%
 # Notify ecFlow that the task has started
 timeout 300 ecflow_client --init=${ECF_RID}
 
-# Error handler — reload ecflow module in case load_modules.sh unloaded it
+# Error handler — saves and restores ECF_* across module load
 ERROR() {
   set +ex
+  _ecf_host="${ECF_HOST}"
+  _ecf_port="${ECF_PORT}"
   module load ecflow 2> /dev/null || true
+  export ECF_HOST="${_ecf_host}"
+  export ECF_PORT="${_ecf_port}"
   if [ "$1" -eq 0 ]; then
     msg="Killed by signal (likely via scancel)"
   else
