@@ -34,7 +34,6 @@ PSLOT="${PSLOT:-C48_ATM_ecflow}"
 RUNTESTS="$(cd "${HOMEgfs}/.." && pwd)/RUNTESTS"
 EXPDIR="${RUNTESTS}/EXPDIR/${PSLOT}"
 COMROOT="${RUNTESTS}/COMROOT"
-YAML_FILE="${HOMEgfs}/dev/ci/cases/pr/C48_ATM_ecflow.yaml"
 
 echo "=== ecFlow C48_ATM suite bootstrap (Ursa) ==="
 echo "  ECF_HOST:    ${ECF_HOST}"
@@ -48,7 +47,7 @@ echo "  COMROOT:     ${COMROOT}"
 echo ""
 
 # ── Step 1: Create the experiment ──
-echo "[1/5] Creating experiment via create_experiment.py..."
+echo "[1/5] Creating experiment via setup_expt.py..."
 if [[ -d "${EXPDIR}" ]]; then
   echo "  EXPDIR already exists, recreating with --overwrite."
 fi
@@ -61,9 +60,16 @@ set -eu
 
 export PYTHONPATH="${HOMEgfs}/sorc/wxflow/src:${HOMEgfs}/ush/python:${HOMEgfs}/dev/workflow${PYTHONPATH:+:${PYTHONPATH}}"
 
-pslot="${PSLOT}" RUNTESTS="${RUNTESTS}" \
-  python3 "${HOMEgfs}/dev/workflow/create_experiment.py" \
-  -y "${YAML_FILE}" --overwrite
+python3 "${HOMEgfs}/dev/workflow/setup_expt.py" \
+  gfs forecast-only \
+  --app ATM \
+  --resdetatmos 48 \
+  --idate 2021032312 \
+  --edate 2021032312 \
+  --pslot "${PSLOT}" \
+  --comroot "${COMROOT}" \
+  --expdir "${RUNTESTS}/EXPDIR" \
+  --overwrite
 
 if [[ ! -f "${EXPDIR}/config.base" ]]; then
   echo "[ERROR] config.base not found in ${EXPDIR}."
