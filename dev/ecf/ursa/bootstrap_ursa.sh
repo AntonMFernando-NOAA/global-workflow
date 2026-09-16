@@ -16,7 +16,7 @@
 set -eu
 
 # ── Validate environment ──
-for var in ECF_HOST ECF_PORT ECF_HOME HOMEgfs; do
+for var in ECF_HOST ECF_PORT ECF_HOME HOMEglobal; do
   if [[ -z "${!var:-}" ]]; then
     echo "[ERROR] ${var} is not set. Source ~/ecflow_ursa.env first."
     exit 1
@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--load-only" ]]; then
 fi
 
 PSLOT="${PSLOT:-C48_ATM_ecflow}"
-RUNTESTS="$(cd "${HOMEgfs}/.." && pwd)/RUNTESTS"
+RUNTESTS="$(cd "${HOMEglobal}/.." && pwd)/RUNTESTS"
 EXPDIR="${RUNTESTS}/EXPDIR/${PSLOT}"
 COMROOT="${RUNTESTS}/COMROOT"
 
@@ -39,7 +39,7 @@ echo "=== ecFlow C48_ATM suite bootstrap (Ursa) ==="
 echo "  ECF_HOST:    ${ECF_HOST}"
 echo "  ECF_PORT:    ${ECF_PORT}"
 echo "  ECF_HOME:    ${ECF_HOME}"
-echo "  HOMEgfs:     ${HOMEgfs}"
+echo "  HOMEglobal:  ${HOMEglobal}"
 echo "  PSLOT:       ${PSLOT}"
 echo "  RUNTESTS:    ${RUNTESTS}"
 echo "  EXPDIR:      ${EXPDIR}"
@@ -55,12 +55,13 @@ mkdir -p "${RUNTESTS}"
 
 # Load the workflow setup module (provides jinja2 and other dependencies)
 set +eu
-source "${HOMEgfs}/dev/ush/gw_setup.sh"
+source "${HOMEglobal}/dev/ush/gw_setup.sh"
+module load ecflow
 set -eu
 
-export PYTHONPATH="${HOMEgfs}/sorc/wxflow/src:${HOMEgfs}/ush/python:${HOMEgfs}/dev/workflow${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${HOMEglobal}/sorc/wxflow/src:${HOMEglobal}/ush/python:${HOMEglobal}/dev/workflow${PYTHONPATH:+:${PYTHONPATH}}"
 
-python3 "${HOMEgfs}/dev/workflow/setup_expt.py" \
+python3 "${HOMEglobal}/dev/workflow/setup_expt.py" \
   gfs forecast-only \
   --app ATM \
   --resdetatmos 48 \
@@ -102,7 +103,7 @@ ecflow_client --alter add variable ECF_LOGHOST "${ECF_HOST}"           "${SUITE}
 ecflow_client --alter add variable ECF_PORT    "${ECF_PORT}"           "${SUITE}"
 
 # Experiment paths and identity
-ecflow_client --alter add variable HOMEglobal  "${HOMEgfs}"     "${SUITE}"
+ecflow_client --alter add variable HOMEglobal  "${HOMEglobal}"  "${SUITE}"
 ecflow_client --alter add variable EXPDIR      "${EXPDIR}"      "${SUITE}"
 ecflow_client --alter add variable COMROOT     "${COMROOT}"     "${SUITE}"
 ecflow_client --alter add variable PSLOT       "${PSLOT}"       "${SUITE}"
