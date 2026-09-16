@@ -1,4 +1,3 @@
-#!/bin/bash
 #SBATCH --job-name=%RUN%_atmos_prod_%CYC%
 #SBATCH --account=%ACCOUNT%
 #SBATCH --partition=%QUEUE%
