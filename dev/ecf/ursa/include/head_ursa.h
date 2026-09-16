@@ -4,6 +4,9 @@ set -xe
 
 export PS4='+ $SECONDS + '
 
+# Load ecflow module first so variable exports below take precedence
+module load ecflow
+
 # ecFlow communication variables
 export ECF_NAME=%ECF_NAME%
 export ECF_HOST=%ECF_LOGHOST%
@@ -13,9 +16,6 @@ export ECF_TRYNO=%ECF_TRYNO%
 export ECF_RID=${ECF_RID:-${SLURM_JOB_ID:-$(hostname -s).$$}}
 export ECF_JOB=%ECF_JOB%
 export ECF_JOBOUT=%ECF_JOBOUT%
-
-# Ursa: load ecflow module
-module load ecflow
 
 # Notify ecFlow that the task has started
 timeout 300 ecflow_client --init=${ECF_RID}
