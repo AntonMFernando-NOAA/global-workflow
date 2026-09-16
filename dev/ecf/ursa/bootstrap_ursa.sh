@@ -73,6 +73,8 @@ ecflow_client --alter add variable HOMEglobal  "${HOMEgfs}"     "${SUITE}"
 ecflow_client --alter add variable EXPDIR      "${EXPDIR}"      "${SUITE}"
 ecflow_client --alter add variable COMROOT     "${COMROOT}"     "${SUITE}"
 ecflow_client --alter add variable PSLOT       "${PSLOT}"       "${SUITE}"
+ecflow_client --alter add variable ACCOUNT     "${HPC_ACCOUNT:-global}" "${SUITE}"
+ecflow_client --alter add variable QUEUE        "${PARTITION_BATCH:-u1-compute}" "${SUITE}"
 
 echo "  Variables set."
 
