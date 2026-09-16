@@ -54,10 +54,15 @@ fi
 mkdir -p "${RUNTESTS}"
 
 # Load the workflow setup module (provides jinja2 and other dependencies)
+# Save ECF_* values; gw_setup.sh does module purge which resets them
+_saved_ecf_host="${ECF_HOST}"
+_saved_ecf_port="${ECF_PORT}"
 set +eu
 source "${HOMEglobal}/dev/ush/gw_setup.sh"
 module load ecflow
 set -eu
+export ECF_HOST="${_saved_ecf_host}"
+export ECF_PORT="${_saved_ecf_port}"
 
 export PYTHONPATH="${HOMEglobal}/sorc/wxflow/src:${HOMEglobal}/ush/python:${HOMEglobal}/dev/workflow${PYTHONPATH:+:${PYTHONPATH}}"
 
