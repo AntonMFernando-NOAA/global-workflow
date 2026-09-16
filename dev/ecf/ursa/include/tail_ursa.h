@@ -1,9 +1,6 @@
-# Save ECF_* before module load which resets them
-_ecf_host="${ECF_HOST}"
-_ecf_port="${ECF_PORT}"
 module load ecflow 2> /dev/null || true
-export ECF_HOST="${_ecf_host}"
-export ECF_PORT="${_ecf_port}"
+export ECF_HOST="${_ECF_HOST_SAVED}"
+export ECF_PORT="${_ECF_PORT_SAVED}"
 timeout 300 ecflow_client --complete
 trap 0
 exit 0

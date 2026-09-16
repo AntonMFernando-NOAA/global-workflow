@@ -17,17 +17,19 @@ export ECF_RID=${ECF_RID:-${SLURM_JOB_ID:-$(hostname -s).$$}}
 export ECF_JOB=%ECF_JOB%
 export ECF_JOBOUT=%ECF_JOBOUT%
 
+# Preserve ECF_HOST/ECF_PORT for use after load_modules.sh resets modules
+readonly _ECF_HOST_SAVED=%ECF_LOGHOST%
+readonly _ECF_PORT_SAVED=%ECF_PORT%
+
 # Notify ecFlow that the task has started
 timeout 300 ecflow_client --init=${ECF_RID}
 
-# Error handler — saves and restores ECF_* across module load
+# Error handler — restores ecflow_client and server coordinates
 ERROR() {
   set +ex
-  _ecf_host="${ECF_HOST}"
-  _ecf_port="${ECF_PORT}"
   module load ecflow 2> /dev/null || true
-  export ECF_HOST="${_ecf_host}"
-  export ECF_PORT="${_ecf_port}"
+  export ECF_HOST="${_ECF_HOST_SAVED}"
+  export ECF_PORT="${_ECF_PORT_SAVED}"
   if [ "$1" -eq 0 ]; then
     msg="Killed by signal (likely via scancel)"
   else
@@ -35,7 +37,7 @@ ERROR() {
   fi
   ecflow_client --abort="$msg"
   echo "$msg"
-  trap $1
+  trap 0
   exit $1
 }
 trap 'ERROR $?' ERR EXIT
