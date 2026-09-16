@@ -1,20 +1,11 @@
-#SBATCH --job-name=%RUN%_fcst_%CYC%
-#SBATCH --account=%ACCOUNT%
-#SBATCH --partition=%QUEUE%
-#SBATCH --time=03:00:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=1
+%include <slurm_ursa.h>
 #SBATCH --exclusive
-
 %include <head_ursa.h>
 %include <envir_ursa.h>
 
 set -x
 
 export HOMEglobal=%HOMEglobal%
-
-# fcst.sh uses ufswm modules on WCOSS2, run modules elsewhere
 source "${HOMEglobal}/dev/ush/load_modules.sh" run
 status=$?
 if [[ ${status} -ne 0 ]]; then
