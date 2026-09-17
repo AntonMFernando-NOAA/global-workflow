@@ -1,6 +1,6 @@
-%include <slurm_ursa.h>
-%include <head_ursa.h>
-%include <envir_ursa.h>
+%include <slurm.h>
+%include <head.h>
+%include <envir.h>
 
 set -x
 
@@ -21,10 +21,10 @@ if [[ ${status} -ne 0 ]]; then
   exit "${status}"
 fi
 
-export job="arch_vrfy"
+export job="cleanup"
 export jobid="${job}.${SLURM_JOB_ID:-$$}"
 
-"${HOMEglobal}/dev/jobs/JGLOBAL_ARCHIVE_VRFY"
+"${HOMEglobal}/dev/jobs/JGLOBAL_CLEANUP"
 status=$?
 if [[ ${status} -ne 0 ]]; then
   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT***"
@@ -32,4 +32,4 @@ if [[ ${status} -ne 0 ]]; then
   exit "${status}"
 fi
 
-%include <tail_ursa.h>
+%include <tail.h>

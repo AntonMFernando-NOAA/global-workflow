@@ -202,8 +202,8 @@ def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> None:
         ("RUNDIRS", runtests / "RUNDIRS" / pslot),
         ("EXPDIR", runtests / "EXPDIR" / pslot),
         # Old ECF_HOME dirs that may have been created inside the repo
-        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecf" / "ursa" / pslot),
-        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecf" / "ursa" / "output"),
+        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecflow" / pslot),
+        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecflow" / "output"),
     ]
 
     for label, d in candidates:

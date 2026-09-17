@@ -161,8 +161,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         self._ecf_scripts_dir = Path(self.expdir) / 'ecf_scripts'
         self._ecf_src_dir = Path(
             os.environ.get('ECF_FILES',
-                           os.path.join(self.HOMEglobal, 'dev', 'ecf',
-                                        'ursa', 'scripts')))
+                           os.path.join(self.HOMEglobal, 'dev', 'ecflow',
+                                        'scripts')))
 
         # Collect symlinks to create: {link_name: target_ecf_name}
         self._symlink_map: Dict[str, str] = {}
@@ -295,8 +295,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         # .ecf in the repo.
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get('ECF_INCLUDE',
-                                     os.path.join(self.HOMEglobal, 'dev', 'ecf',
-                                                  'ursa', 'include'))
+                                     os.path.join(self.HOMEglobal, 'dev', 'ecflow',
+                                                  'utils'))
 
         lines.append(f"{sp}# ecFlow server connection")
         lines.append(f"{sp}edit ECF_LOGHOST '{ecf_host}'")
@@ -623,7 +623,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines.append(f"{tsp}edit WALLTIME '{walltime}'")
         # NODES and NTASKS are always emitted for non-default values.
-        # NTASKS maps to --ntasks-per-node in slurm_ursa.h (per-node count).
+        # NTASKS maps to --ntasks-per-node in slurm.h (per-node count).
         if nodes > 1:
             lines.append(f"{tsp}edit NODES '{nodes}'")
         if ppn > 1:

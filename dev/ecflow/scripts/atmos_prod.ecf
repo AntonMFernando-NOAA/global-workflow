@@ -1,6 +1,6 @@
-%include <slurm_ursa.h>
-%include <head_ursa.h>
-%include <envir_ursa.h>
+%include <slurm.h>
+%include <head.h>
+%include <envir.h>
 
 set -x
 
@@ -44,4 +44,4 @@ for fhr in "${_fhrs[@]}"; do
   fi
 done
 
-%include <tail_ursa.h>
+%include <tail.h>
