@@ -18,6 +18,7 @@ The dependency chain mirrors ``rocoto/gfs_tasks.py`` for forecast-only mode::
 
 import os
 from logging import getLogger
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ecflow.ecflow_suite import EcFlowSuite
@@ -132,7 +133,14 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def write(self, def_file: str = None) -> str:
         """
-        Generate the ecFlow ``.def`` file and write it to disk.
+        Generate the ecFlow ``.def`` file, create the ECF_FILES symlink
+        directory, and write both to disk.
+
+        The symlink directory lives at ``{EXPDIR}/ecf_scripts/`` and
+        contains one symlink per ecFlow task, all pointing back to the
+        real ``.ecf`` files in the repo.  Product family children
+        (e.g. ``f000_f002.ecf``) symlink to their parent's ``.ecf``
+        (e.g. ``atmos_prod.ecf``).
 
         Parameters
         ----------
@@ -148,6 +156,16 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             def_file = os.path.join(self.expdir, f'{self.pslot}.def')
 
         suite_name = self.pslot
+
+        # Symlink directory: all .ecf lookups resolve here.
+        self._ecf_scripts_dir = Path(self.expdir) / 'ecf_scripts'
+        self._ecf_src_dir = Path(
+            os.environ.get('ECF_FILES',
+                           os.path.join(self.HOMEglobal, 'dev', 'ecf',
+                                        'ursa', 'scripts')))
+
+        # Collect symlinks to create: {link_name: target_ecf_name}
+        self._symlink_map: Dict[str, str] = {}
 
         lines: List[str] = []
         lines.append(f'# Auto-generated ecFlow suite definition for {suite_name}')
@@ -199,7 +217,49 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             fh.write(def_content)
 
         logger.info(f'ecFlow suite definition written to {def_file}')
+
+        # Create the ecf_scripts directory with copies
+        self._create_ecf_scripts()
+
         return def_file
+
+    def _create_ecf_scripts(self) -> None:
+        """Populate the ECF_FILES directory under EXPDIR with copies.
+
+        Creates ``{EXPDIR}/ecf_scripts/`` containing one ``.ecf`` file
+        per ecFlow task.  Simple tasks get a copy of their same-named
+        source.  Product family children (e.g. ``f000_f002``) get a
+        copy of the parent task's ``.ecf`` (e.g. ``atmos_prod.ecf``).
+
+        Also writes ``ecf_scripts.manifest`` — a two-column TSV
+        (child_name <TAB> source_name) consumed by the standalone
+        ``sync_ecf_scripts.sh`` refresh script.
+        """
+        scripts_dir = self._ecf_scripts_dir
+        src_dir = self._ecf_src_dir
+
+        if scripts_dir.exists():
+            for f in scripts_dir.iterdir():
+                if f.is_symlink() or f.is_file():
+                    f.unlink()
+        else:
+            scripts_dir.mkdir(parents=True)
+
+        import shutil
+        for link_name, target_name in self._symlink_map.items():
+            dest = scripts_dir / f'{link_name}.ecf'
+            src = src_dir / f'{target_name}.ecf'
+            shutil.copy2(str(src), str(dest))
+
+        # Write manifest for sync_ecf_scripts.sh
+        manifest = scripts_dir / 'ecf_scripts.manifest'
+        with open(manifest, 'w') as fh:
+            fh.write(f'# ECF_SRC_DIR={self._ecf_src_dir}\n')
+            for link_name, target_name in sorted(self._symlink_map.items()):
+                fh.write(f'{link_name}\t{target_name}\n')
+
+        logger.info(f'Copied {len(self._symlink_map)} .ecf files to '
+                     f'{scripts_dir}')
 
     # ── Private helpers ───────────────────────────────────────────────
 
@@ -222,10 +282,11 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
 
-        # ECF_FILES and ECF_INCLUDE point to the .ecf source in the repo.
-        ecf_files = os.environ.get('ECF_FILES',
-                                   os.path.join(self.HOMEglobal, 'dev', 'ecf',
-                                                'ursa', 'scripts'))
+        # ECF_FILES points to a symlink directory under EXPDIR.
+        # The symlinks are created by _create_ecf_symlinks() after the
+        # .def is written; each task gets a symlink back to the real
+        # .ecf in the repo.
+        ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get('ECF_INCLUDE',
                                      os.path.join(self.HOMEglobal, 'dev', 'ecf',
                                                   'ursa', 'include'))
@@ -237,7 +298,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}# File locations")
         lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
-        lines.append(f"{sp}edit ECF_FILES   '{ecf_files}'")
+        lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
         # Use %TASK% for flat output — ecFlow's %ECF_NAME% includes the
         # full node hierarchy which creates unwanted subdirectories.
         lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
@@ -538,6 +599,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
 
+        # Register in the copy map: task_name.ecf → task_name.ecf
+        self._symlink_map[task_name] = task_name
+
         lines.append(f'{sp}task {task_name}')
         lines.append(f"{tsp}edit TASK '{task_name}'")
 
@@ -623,24 +687,20 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append('')
 
         # One child task per forecast-hour group.
-        # ECF_SCRIPT points children at the parent's .ecf file since
-        # ecFlow would otherwise look for f000_f002.ecf which does not exist.
-        ecf_files = os.environ.get('ECF_FILES',
-                                   os.path.join(self.HOMEglobal, 'dev', 'ecf',
-                                                'ursa', 'scripts'))
-        parent_ecf = os.path.join(ecf_files, f'{task_name}.ecf')
-
+        # Each child is registered in the copy map so _create_ecf_scripts
+        # copies parent_task.ecf as child_label.ecf in the ECF_FILES dir.
         for i, grp in enumerate(groups):
             if len(grp) == 1:
                 label = f'f{grp[0]:03d}'
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
+            self._symlink_map[label] = task_name
+
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
             lines.append(f'{fsp}task {label}')
-            lines.append(f"{tsp}edit ECF_SCRIPT '{parent_ecf}'")
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
             lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
             lines.append('')

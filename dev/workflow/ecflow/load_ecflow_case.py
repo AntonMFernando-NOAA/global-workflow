@@ -272,10 +272,14 @@ def main() -> None:
     expdir = create_experiment(testconf, runtests, overwrite=args.overwrite)
     print(f"  Experiment created in {expdir}.")
 
-    # Step 2: Generate the ecFlow .def
+    # Step 2: Generate the ecFlow .def and ecf_scripts directory
     print("[2/4] Generating ecFlow .def via setup_workflow (ecflow engine)...")
     def_file = generate_ecflow_def(expdir)
     print(f"  Suite definition generated: {def_file.name}")
+    ecf_scripts_dir = expdir / "ecf_scripts"
+    if ecf_scripts_dir.is_dir():
+        n_ecf = sum(1 for f in ecf_scripts_dir.glob("*.ecf"))
+        print(f"  ECF_FILES directory: {ecf_scripts_dir} ({n_ecf} files)")
 
     # Restore ecFlow server vars — config parsing inside setup_workflow
     # may alter the module environment, unsetting ECF_HOST/ECF_PORT.
@@ -305,6 +309,9 @@ def main() -> None:
     print("=== Done ===")
     print(f"Monitor with: ecflow_client --get_state /{suite_name}")
     print("         or:  ecflow_ui  (if X11 available)")
+    print()
+    print("To refresh .ecf files after editing (without regenerating .def):")
+    print(f"  bash dev/workflow/ecflow/sync_ecf_scripts.sh {expdir_path}/ecf_scripts")
 
 
 if __name__ == "__main__":
