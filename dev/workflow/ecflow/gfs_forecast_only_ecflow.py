@@ -411,105 +411,105 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         Return the ecFlow trigger expression for *task_name*, or None.
 
         Mirrors the dependency logic from ``rocoto/gfs_tasks.py`` for
-        forecast-only mode.
+        forecast-only mode.  Task references use the {RUN}_ prefix to
+        match emitted node names.
         """
-        options = self._options
         tasks = self._task_names
+        run = self._run
 
-        # Helper: is a task present in this workflow?
         def has(name):
             return name in tasks
 
+        def ref(name):
+            return f'{run}_{name}'
+
         if task_name == 'stage_ic':
             if has('fetch'):
-                return 'fetch == complete'
+                return f'{ref("fetch")} == complete'
             return None
 
         if task_name == 'aerosol_init':
-            return None  # no intra-cycle dep in forecast-only
+            return None
 
         if task_name == 'waveinit':
-            return None  # no intra-cycle dep
+            return None
 
         if task_name == 'fcst':
-            deps = ['stage_ic == complete']
+            deps = [f'{ref("stage_ic")} == complete']
             if has('waveinit'):
-                deps.append('waveinit == complete')
+                deps.append(f'{ref("waveinit")} == complete')
             if has('aerosol_init'):
-                deps.append('aerosol_init == complete')
+                deps.append(f'{ref("aerosol_init")} == complete')
             return ' and '.join(deps)
 
         if task_name == 'atmupp':
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name == 'goesupp':
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name == 'atmos_prod':
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name == 'ocean_prod':
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name == 'ice_prod':
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name in ('tracker', 'genesis', 'genesis_fsu', 'metp'):
-            return 'atmos_prod == complete'
+            return f'{ref("atmos_prod")} == complete'
 
         if task_name == 'postsnd':
-            return 'atmos_prod == complete'
+            return f'{ref("atmos_prod")} == complete'
 
         if task_name in ('gempak', 'gempakmeta'):
-            return 'atmos_prod == complete'
+            return f'{ref("atmos_prod")} == complete'
 
         if task_name in ('awips_20km_1p0deg', 'fbwind'):
-            return 'atmos_prod == complete'
+            return f'{ref("atmos_prod")} == complete'
 
-        # Wave post-processing depends on fcst
         if task_name in ('wavepostgridded', 'wavepostpnt',
                          'wavepostbndpnt', 'wavepostbndpntbll'):
-            return 'fcst == complete'
+            return f'{ref("fcst")} == complete'
 
         if task_name in ('wavegempak',):
-            return 'wavepostgridded == complete'
+            return f'{ref("wavepostgridded")} == complete'
 
         if task_name in ('waveawipsbulls', 'waveawipsgridded'):
-            return 'wavepostgridded == complete'
+            return f'{ref("wavepostgridded")} == complete'
 
         if task_name in ('arch_tars', 'globus_arch'):
-            # arch_tars waits for all products + verification
-            return 'arch_vrfy == complete'
+            return f'{ref("arch_vrfy")} == complete'
 
         if task_name == 'arch_vrfy':
-            # arch_vrfy depends on all product and verification tasks
-            deps = ['atmos_prod == complete']
+            deps = [f'{ref("atmos_prod")} == complete']
             if has('tracker'):
-                deps.append('tracker == complete')
+                deps.append(f'{ref("tracker")} == complete')
             if has('genesis'):
-                deps.append('genesis == complete')
+                deps.append(f'{ref("genesis")} == complete')
             if has('genesis_fsu'):
-                deps.append('genesis_fsu == complete')
+                deps.append(f'{ref("genesis_fsu")} == complete')
             if has('ocean_prod'):
-                deps.append('ocean_prod == complete')
+                deps.append(f'{ref("ocean_prod")} == complete')
             if has('ice_prod'):
-                deps.append('ice_prod == complete')
+                deps.append(f'{ref("ice_prod")} == complete')
             if has('wavepostgridded'):
-                deps.append('wavepostgridded == complete')
+                deps.append(f'{ref("wavepostgridded")} == complete')
             if has('wavepostpnt'):
-                deps.append('wavepostpnt == complete')
+                deps.append(f'{ref("wavepostpnt")} == complete')
             if has('wavepostbndpnt'):
-                deps.append('wavepostbndpnt == complete')
+                deps.append(f'{ref("wavepostbndpnt")} == complete')
             if has('wavepostbndpntbll'):
-                deps.append('wavepostbndpntbll == complete')
+                deps.append(f'{ref("wavepostbndpntbll")} == complete')
             return ' and '.join(deps)
 
         if task_name == 'cleanup':
-            deps = ['arch_vrfy == complete']
+            deps = [f'{ref("arch_vrfy")} == complete']
             if has('arch_tars'):
-                deps.append('arch_tars == complete')
+                deps.append(f'{ref("arch_tars")} == complete')
             if has('globus_arch'):
-                deps.append('globus_arch == complete')
+                deps.append(f'{ref("globus_arch")} == complete')
             return ' and '.join(deps)
 
         return None
