@@ -190,20 +190,43 @@ def load_suite(suite_name: str, def_file: Path) -> None:
     ecflow_client(f"--load={def_file}")
 
 
-def cleanup_stale_files(pslot: str, comroot: Path) -> None:
-    """Remove ecFlow runtime files from previous runs."""
-    stale_dirs = [
+def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> None:
+    """Remove all runtime directories from a previous run of this case.
+
+    Lists directories to be removed and prompts for confirmation.
+    """
+    dirs_to_clean = []
+
+    candidates = [
+        ("COMROOT", comroot / pslot),
+        ("RUNDIRS", runtests / "RUNDIRS" / pslot),
+        ("EXPDIR", runtests / "EXPDIR" / pslot),
         # Old ECF_HOME dirs that may have been created inside the repo
-        HOMEglobal / "dev" / "ecf" / "ursa" / pslot,
-        HOMEglobal / "dev" / "ecf" / "ursa" / "output",
-        HOMEglobal / "dev" / "ecf" / "ursa" / "C48_ATM_ecflow",
-        # Runtime logs from previous runs under ROTDIR
-        comroot / pslot / "logs",
+        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecf" / "ursa" / pslot),
+        ("repo/ecf (stale)", HOMEglobal / "dev" / "ecf" / "ursa" / "output"),
     ]
-    for d in stale_dirs:
+
+    for label, d in candidates:
         if d.is_dir():
-            print(f"  Removing {d}")
-            shutil.rmtree(d)
+            dirs_to_clean.append((label, d))
+
+    if not dirs_to_clean:
+        print("  No previous run directories found.")
+        return
+
+    print("  The following directories will be removed:")
+    for label, d in dirs_to_clean:
+        print(f"    [{label}] {d}")
+
+    answer = input("  Proceed? [y/N] ").strip().lower()
+    if answer not in ('y', 'yes'):
+        print("  Skipping cleanup.")
+        return
+
+    for label, d in dirs_to_clean:
+        print(f"  Removing {d}")
+        shutil.rmtree(d)
+    print("  Clean.")
 
 
 def main() -> None:
@@ -242,8 +265,7 @@ def main() -> None:
 
     # Step 0: Clean up stale ecFlow runtime files
     print("[0/4] Cleaning up previous ecFlow runtime files...")
-    cleanup_stale_files(pslot, comroot)
-    print("  Clean.")
+    cleanup_stale_files(pslot, comroot, runtests)
 
     # Step 1: Create the experiment
     print("[1/4] Creating experiment via setup_expt...")
