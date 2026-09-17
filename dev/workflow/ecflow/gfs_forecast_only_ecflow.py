@@ -246,9 +246,13 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             scripts_dir.mkdir(parents=True)
 
         import shutil
+        skipped = []
         for link_name, target_name in self._symlink_map.items():
             dest = scripts_dir / f'{link_name}.ecf'
             src = src_dir / f'{target_name}.ecf'
+            if not src.is_file():
+                skipped.append(f'{target_name}.ecf')
+                continue
             shutil.copy2(str(src), str(dest))
 
         # Write manifest for sync_ecf_scripts.sh
@@ -258,8 +262,11 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             for link_name, target_name in sorted(self._symlink_map.items()):
                 fh.write(f'{link_name}\t{target_name}\n')
 
-        logger.info(f'Copied {len(self._symlink_map)} .ecf files to '
-                     f'{scripts_dir}')
+        copied = len(self._symlink_map) - len(skipped)
+        logger.info(f'Copied {copied} .ecf files to {scripts_dir}')
+        if skipped:
+            unique = sorted(set(skipped))
+            logger.warning(f'Missing source .ecf (skipped): {", ".join(unique)}')
 
     # ── Private helpers ───────────────────────────────────────────────
 
