@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ecflow.ecflow_suite import EcFlowSuite
 from applications.applications import AppConfig
+from rocoto.tasks import Tasks
 from rocoto.tasks_factory import tasks_factory
 from wxflow import timedelta_to_HMS
 
@@ -394,14 +395,19 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         Emit a single task block with edit variables and trigger.
 
-        Returns (lines, task_name) where task_name can be used as a
-        trigger target by downstream tasks.
+        For product tasks (atmos_prod, ocean_prod, etc.), includes
+        FHR_LIST, FHR_COUNT, and group info as edit variables showing
+        the forecast hours the task processes.  Walltime is scaled by
+        the largest group size.
+
+        Returns (lines, task_name).
         """
         sp = ' ' * indent
         lines = []
 
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
+        fhrs = self._get_forecast_hours(task_name)
 
         lines.append(f'{sp}task {task_name}')
 
@@ -417,6 +423,34 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         native = res.get('native', '')
         is_exclusive = native and '--exclusive' in str(native)
 
+        # For product tasks, scale walltime and emit forecast hour details
+        if fhrs is not None:
+            prod_info = _PRODUCT_TASKS[task_name]
+            max_tasks = self._configs.get(
+                prod_info['config'], {}).get('MAX_TASKS', 25)
+            ngroups = min(max_tasks, len(fhrs))
+
+            groups = self._group_fhrs(fhrs, ngroups)
+            largest_group = max(len(grp) for grp in groups)
+
+            walltime = Tasks.multiply_HMS(walltime, largest_group)
+
+            fhr_strs = [str(f) for f in fhrs]
+            lines.append(f"{tsp}# {len(fhrs)} forecast hours in "
+                         f"{ngroups} groups (largest: {largest_group} fhrs)")
+            lines.append(f"{tsp}edit FHR_LIST '{','.join(fhr_strs)}'")
+            lines.append(f"{tsp}edit FHR_COUNT '{len(fhrs)}'")
+            lines.append(f"{tsp}edit NGROUPS '{ngroups}'")
+            lines.append(f"{tsp}edit LARGEST_GROUP '{largest_group}'")
+
+            grp_labels = []
+            for grp in groups:
+                if len(grp) == 1:
+                    grp_labels.append(f'f{grp[0]:03d}')
+                else:
+                    grp_labels.append(f'f{grp[0]:03d}-f{grp[-1]:03d}')
+            lines.append(f"{tsp}# Groups: {', '.join(grp_labels)}")
+
         lines.append(f"{tsp}edit WALLTIME '{walltime}'")
         if nodes > 1:
             lines.append(f"{tsp}edit NODES '{nodes}'")
@@ -429,8 +463,28 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         if is_exclusive:
             lines.append(f"{tsp}edit EXCLUSIVE 'YES'")
 
-        # Trigger
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
 
         return lines, task_name
+
+    @staticmethod
+    def _group_fhrs(fhrs: List[int], ngroups: int) -> List[List[int]]:
+        """
+        Split forecast hours into *ngroups* roughly equal groups.
+
+        Simplified version of Tasks.get_job_groups() without
+        forecast-segment breakpoint handling.
+        """
+        if ngroups >= len(fhrs):
+            return [[f] for f in fhrs]
+
+        groups: List[List[int]] = []
+        base_size = len(fhrs) // ngroups
+        remainder = len(fhrs) % ngroups
+        idx = 0
+        for i in range(ngroups):
+            size = base_size + (1 if i < remainder else 0)
+            groups.append(fhrs[idx:idx + size])
+            idx += size
+        return groups
