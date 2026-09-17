@@ -190,10 +190,11 @@ def load_suite(suite_name: str, def_file: Path) -> None:
     ecflow_client(f"--load={def_file}")
 
 
-def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> None:
+def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> bool:
     """Remove all runtime directories from a previous run of this case.
 
     Lists directories to be removed and prompts for confirmation.
+    Returns True if cleanup was performed, False if skipped.
     """
     dirs_to_clean = []
 
@@ -212,7 +213,7 @@ def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> None:
 
     if not dirs_to_clean:
         print("  No previous run directories found.")
-        return
+        return True
 
     print("  The following directories will be removed:")
     for label, d in dirs_to_clean:
@@ -220,13 +221,14 @@ def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> None:
 
     answer = input("  Proceed? [y/N] ").strip().lower()
     if answer not in ('y', 'yes'):
-        print("  Skipping cleanup.")
-        return
+        print("  Skipping cleanup, proceeding without cleaning.")
+        return False
 
     for label, d in dirs_to_clean:
         print(f"  Removing {d}")
         shutil.rmtree(d)
     print("  Clean.")
+    return True
 
 
 def main() -> None:
@@ -265,11 +267,12 @@ def main() -> None:
 
     # Step 0: Clean up stale ecFlow runtime files
     print("[0/4] Cleaning up previous ecFlow runtime files...")
-    cleanup_stale_files(pslot, comroot, runtests)
+    cleaned = cleanup_stale_files(pslot, comroot, runtests)
 
     # Step 1: Create the experiment
     print("[1/4] Creating experiment via setup_expt...")
-    expdir = create_experiment(testconf, runtests, overwrite=args.overwrite)
+    overwrite = args.overwrite and cleaned
+    expdir = create_experiment(testconf, runtests, overwrite=overwrite)
     print(f"  Experiment created in {expdir}.")
 
     # Step 2: Generate the ecFlow .def and ecf_scripts directory
