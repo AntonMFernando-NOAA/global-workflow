@@ -83,6 +83,14 @@ _RESOURCE_STEP_MAP = {
 # the service partition rather than compute.
 _SERVICE_TASKS = {'arch_vrfy', 'stage_ic'}
 
+# Product tasks that process forecast hours in groups.
+_PRODUCT_TASKS = {
+    'atmos_prod': {'config': 'atmos_products', 'component': 'atmos'},
+    'ocean_prod': {'config': 'oceanice_products', 'component': 'ocean'},
+    'ice_prod': {'config': 'oceanice_products', 'component': 'ice'},
+    'wavepostgridded': {'config': 'wavepostgridded', 'component': 'wave'},
+}
+
 
 class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
     """
