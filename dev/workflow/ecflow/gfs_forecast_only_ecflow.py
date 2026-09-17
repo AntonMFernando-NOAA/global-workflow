@@ -244,7 +244,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit NET      '{base['NET']}'")
         lines.append(f"{sp}edit RUN      '{self._run}'")
         lines.append(f"{sp}edit APP      '{self._options.get('app', 'ATM')}'")
-        account = base.get('ACCOUNT', os.environ.get('HPC_ACCOUNT', 'fv3-cpu'))
+        account = base.get('ACCOUNT', '')
+        if not account or account == 'UNDEFINED':
+            account = os.environ.get('HPC_ACCOUNT', 'fv3-cpu')
         lines.append(f"{sp}edit ACCOUNT  '{account}'")
         lines.append(f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
         lines.append(f"{sp}edit PSLOT    '{self.pslot}'")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Bootstrap an ecFlow suite on Ursa from a CI case YAML.
+"""Create an experiment and load its ecFlow suite from a CI case YAML.
 
 Parses a case YAML (e.g. dev/ci/cases/pr/C48_ATM.yaml), creates the
 experiment via setup_expt, generates the ecFlow .def via setup_workflow
@@ -13,12 +13,12 @@ partitions) baked in from the experiment's config files, so no
 
 Prerequisites
 -------------
-1. ecFlow server running on uecflow01 (see ~/ecflow_ursa.env).
-2. global-workflow built and linked (build_all.sh + link_workflow.sh).
-3. Environment sourced::
+1. ecFlow server running (ECF_HOST / ECF_PORT set).
+2. global-workflow built and linked.
+3. Environment sourced with ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal::
 
-       source ~/ecflow_ursa.env
-       python3 dev/ecf/c96/bootstrap_ursa.py --yaml dev/ci/cases/pr/C48_ATM.yaml
+       python3 dev/workflow/ecflow/load_ecflow_case.py \\
+           --yaml dev/ci/cases/pr/C48_ATM.yaml
 """
 
 import argparse
@@ -28,12 +28,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Resolve repo root from this script's location (dev/ecf/c96/bootstrap_ursa.py)
+# Resolve repo root from this script's location (dev/workflow/ecflow/)
 SCRIPT_DIR = Path(__file__).resolve().parent
 HOMEglobal = SCRIPT_DIR.parent.parent.parent
 
-# Add workflow and library paths so setup_expt, setup_workflow, and
-# wxflow can be imported.
+# Add workflow and library paths for imports
 sys.path.insert(0, str(HOMEglobal / "dev" / "workflow"))
 sys.path.insert(0, str(HOMEglobal / "sorc" / "wxflow" / "src"))
 sys.path.insert(0, str(HOMEglobal / "ush" / "python"))
@@ -43,8 +42,7 @@ import setup_workflow  # noqa: E402
 from hosts import Host  # noqa: E402
 from wxflow import AttrDict, parse_j2yaml  # noqa: E402
 
-# Required environment variables (set by ~/ecflow_ursa.env)
-REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "ECF_HOME", "HOMEglobal")
+REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "HOMEglobal")
 
 DEFAULT_YAML = HOMEglobal / "dev" / "ci" / "cases" / "pr" / "C48_ATM.yaml"
 
@@ -69,13 +67,14 @@ def ecflow_client_quiet(*args: str) -> bool:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Bootstrap an ecFlow suite on Ursa from a CI case YAML."
+        description="Create an experiment and load its ecFlow suite "
+                    "from a CI case YAML."
     )
     parser.add_argument(
         "-y", "--yaml",
         type=Path,
         default=DEFAULT_YAML,
-        help=f"Path to the CI case YAML (default: {DEFAULT_YAML.relative_to(HOMEglobal)})",
+        help=f"CI case YAML (default: {DEFAULT_YAML.relative_to(HOMEglobal)})",
     )
     parser.add_argument(
         "--load-only",
@@ -90,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--suite-name",
         default=None,
-        help="ecFlow suite name (default: derived from pslot in the YAML).",
+        help="ecFlow suite name (default: pslot from the YAML).",
     )
     return parser.parse_args()
 
@@ -100,7 +99,7 @@ def validate_environment() -> None:
     missing = [v for v in REQUIRED_ENV if not os.environ.get(v)]
     if missing:
         print(f"[ERROR] Missing environment variables: {', '.join(missing)}")
-        print("  Source ~/ecflow_ursa.env first.")
+        print("  Set ECF_HOST, ECF_PORT, and HOMEglobal before running.")
         sys.exit(1)
 
 
@@ -111,7 +110,6 @@ def load_case_yaml(yaml_path: Path) -> AttrDict:
     when not already present, so that Jinja2 ``getenv`` filters resolve
     to usable paths instead of the literal string ``UNDEFINED``.
     """
-    # Provide defaults for CI variables consumed via {{ 'var' | getenv }}
     if not os.environ.get('pslot'):
         os.environ['pslot'] = yaml_path.stem + '_ecflow'
     if not os.environ.get('RUNTESTS'):
@@ -136,7 +134,6 @@ def create_experiment(testconf: AttrDict, runtests: Path,
     if expdir.is_dir():
         print("  EXPDIR already exists, recreating with --overwrite.")
 
-    # Build args the same way create_experiment.py does
     setup_expt_args = [exp.net, exp.mode]
     skip_keys = {"net", "mode", "yaml"}
     for key, val in exp.items():
@@ -152,7 +149,6 @@ def create_experiment(testconf: AttrDict, runtests: Path,
     config_base = expdir / "config.base"
     if not config_base.is_file():
         print(f"[ERROR] config.base not found in {expdir}.")
-        print("  setup_expt.py may have failed.")
         sys.exit(1)
 
     return expdir
@@ -160,10 +156,6 @@ def create_experiment(testconf: AttrDict, runtests: Path,
 
 def generate_ecflow_def(expdir: Path) -> Path:
     """Generate the ecFlow .def file via setup_workflow.main(ecflow).
-
-    setup_workflow sources the experiment's config files, builds an
-    AppConfig, and calls GFSForecastOnlyEcFlowSuite.write() which
-    writes ``{EXPDIR}/{pslot}.def`` with all variables baked in.
 
     Returns the path to the generated .def file.
     """
@@ -184,11 +176,9 @@ def generate_ecflow_def(expdir: Path) -> Path:
     finally:
         os.environ.update(_saved_env)
 
-    # Find the generated .def (named after the pslot)
     def_files = list(expdir.glob("*.def"))
     if not def_files:
         print(f"[ERROR] No .def file generated in {expdir}.")
-        print("  setup_workflow.py ecflow may have failed.")
         sys.exit(1)
 
     return def_files[0]
@@ -200,12 +190,27 @@ def load_suite(suite_name: str, def_file: Path) -> None:
     ecflow_client(f"--load={def_file}")
 
 
+def cleanup_stale_files(pslot: str, comroot: Path) -> None:
+    """Remove ecFlow runtime files from previous runs."""
+    stale_dirs = [
+        # Old ECF_HOME dirs that may have been created inside the repo
+        HOMEglobal / "dev" / "ecf" / "ursa" / pslot,
+        HOMEglobal / "dev" / "ecf" / "ursa" / "output",
+        HOMEglobal / "dev" / "ecf" / "ursa" / "C48_ATM_ecflow",
+        # Runtime logs from previous runs under ROTDIR
+        comroot / pslot / "logs",
+    ]
+    for d in stale_dirs:
+        if d.is_dir():
+            print(f"  Removing {d}")
+            shutil.rmtree(d)
+
+
 def main() -> None:
     args = parse_args()
 
     validate_environment()
 
-    # Parse the CI case YAML
     yaml_path = args.yaml.resolve()
     if not yaml_path.is_file():
         print(f"[ERROR] Case YAML not found: {yaml_path}")
@@ -222,14 +227,12 @@ def main() -> None:
 
     ecf_host = os.environ["ECF_HOST"]
     ecf_port = os.environ["ECF_PORT"]
-    ecf_home = os.environ["ECF_HOME"]
 
-    print("=== ecFlow suite bootstrap (Ursa) ===")
+    print("=== Load ecFlow case ===")
     print(f"  Case YAML:   {yaml_path.relative_to(HOMEglobal)}")
     print(f"  Suite:       {suite_name}")
     print(f"  ECF_HOST:    {ecf_host}")
     print(f"  ECF_PORT:    {ecf_port}")
-    print(f"  ECF_HOME:    {ecf_home}")
     print(f"  HOMEglobal:  {HOMEglobal}")
     print(f"  PSLOT:       {pslot}")
     print(f"  RUNTESTS:    {runtests}")
@@ -237,29 +240,18 @@ def main() -> None:
     print(f"  COMROOT:     {comroot}")
     print()
 
-    # Step 0: Clean up stale ecFlow runtime files from previous runs
-    print("[0/5] Cleaning up previous ecFlow runtime files...")
-    stale_dirs = [
-        # Old ECF_HOME dirs that may have been created inside the repo
-        HOMEglobal / "dev" / "ecf" / "ursa" / pslot,
-        HOMEglobal / "dev" / "ecf" / "ursa" / "output",
-        HOMEglobal / "dev" / "ecf" / "ursa" / "C48_ATM_ecflow",
-        # Runtime logs from previous runs under ROTDIR
-        comroot / pslot / "logs",
-    ]
-    for d in stale_dirs:
-        if d.is_dir():
-            print(f"  Removing {d}")
-            shutil.rmtree(d)
+    # Step 0: Clean up stale ecFlow runtime files
+    print("[0/4] Cleaning up previous ecFlow runtime files...")
+    cleanup_stale_files(pslot, comroot)
     print("  Clean.")
 
-    # Step 1: Create the experiment (renders config files into EXPDIR)
-    print("[1/5] Creating experiment via setup_expt...")
+    # Step 1: Create the experiment
+    print("[1/4] Creating experiment via setup_expt...")
     expdir = create_experiment(testconf, runtests, overwrite=args.overwrite)
     print(f"  Experiment created in {expdir}.")
 
-    # Step 2: Generate the ecFlow .def via setup_workflow (ecflow engine)
-    print("[2/5] Generating ecFlow .def via setup_workflow (ecflow engine)...")
+    # Step 2: Generate the ecFlow .def
+    print("[2/4] Generating ecFlow .def via setup_workflow (ecflow engine)...")
     def_file = generate_ecflow_def(expdir)
     print(f"  Suite definition generated: {def_file.name}")
 
@@ -267,10 +259,9 @@ def main() -> None:
     # may alter the module environment, unsetting ECF_HOST/ECF_PORT.
     os.environ['ECF_HOST'] = ecf_host
     os.environ['ECF_PORT'] = ecf_port
-    os.environ['ECF_HOME'] = ecf_home
 
-    # Step 3: Verify ecFlow server is reachable, then load the .def
-    print("[3/5] Loading suite into ecFlow server...")
+    # Step 3: Load into ecFlow server
+    print("[3/4] Loading suite into ecFlow server...")
     if not ecflow_client_quiet("--ping"):
         print(f"[ERROR] Cannot reach ecFlow server at {ecf_host}:{ecf_port}")
         sys.exit(1)
@@ -280,11 +271,11 @@ def main() -> None:
 
     # Step 4: Begin the suite (or stop at load-only)
     if args.load_only:
-        print("[4/5] --load-only specified, suite NOT started.")
+        print("[4/4] --load-only specified, suite NOT started.")
         print(f"  Inspect in ecflow_ui, then run:")
         print(f"    ecflow_client --begin={suite_name}")
     else:
-        print("[4/5] Beginning suite...")
+        print("[4/4] Beginning suite...")
         ecflow_client(f"--begin={suite_name}")
         print(f"  [OK] Suite {suite_name} started.")
 
