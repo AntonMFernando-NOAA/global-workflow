@@ -51,14 +51,19 @@ DEFAULT_YAML = HOMEglobal / "dev" / "ci" / "cases" / "pr" / "C48_ATM.yaml"
 def ecflow_client(*args: str) -> subprocess.CompletedProcess:
     """Run ecflow_client with the given arguments."""
     cmd = ["ecflow_client", *args]
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True,
+                          timeout=30)
 
 
 def ecflow_client_quiet(*args: str) -> bool:
     """Run ecflow_client, returning True on success and False on failure."""
     cmd = ["ecflow_client", *args]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=30)
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -238,6 +243,12 @@ def main() -> None:
     print("[2/4] Generating ecFlow .def via setup_workflow (ecflow engine)...")
     def_file = generate_ecflow_def(expdir)
     print(f"  Suite definition generated: {def_file.name}")
+
+    # Restore ecFlow server vars — config parsing inside setup_workflow
+    # may alter the module environment, unsetting ECF_HOST/ECF_PORT.
+    os.environ['ECF_HOST'] = ecf_host
+    os.environ['ECF_PORT'] = ecf_port
+    os.environ['ECF_HOME'] = ecf_home
 
     # Step 3: Verify ecFlow server is reachable, then load the .def
     print("[3/4] Loading suite into ecFlow server...")
