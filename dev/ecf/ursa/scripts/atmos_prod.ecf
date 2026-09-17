@@ -23,11 +23,13 @@ fi
 
 export job="atmos_products"
 
-# Run all forecast hours serially within this single task
+# Process the forecast hours assigned to this task via FHR_LIST.
+# When run as a family child (generator .def), FHR_LIST is a
+# comma-separated subset like "0,1,2,3,4".  When run as a single
+# task (static .def), set FHR_LIST to the full range externally.
 export FORECAST_HOUR jobid
-fhmax=%FHMAX_GFS%
-fhr=0
-while [[ ${fhr} -le ${fhmax} ]]; do
+IFS=',' read -ra _fhrs <<< "%FHR_LIST%"
+for fhr in "${_fhrs[@]}"; do
   fhr3=$(printf '%03d' "${fhr}")
   export FORECAST_HOUR="${fhr}"
   export FHR_LIST="${fhr}"
@@ -39,12 +41,6 @@ while [[ ${fhr} -le ${fhmax} ]]; do
     ecflow_client --msg="***JOB ${ECF_NAME} ERROR at f${fhr3}***"
     ecflow_client --abort
     exit "${status}"
-  fi
-
-  if [[ ${fhr} -lt 120 ]]; then
-    fhr=$((fhr + 1))
-  else
-    fhr=$((fhr + 3))
   fi
 done
 
