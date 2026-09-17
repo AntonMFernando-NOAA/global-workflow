@@ -411,21 +411,16 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         Return the ecFlow trigger expression for *task_name*, or None.
 
         Mirrors the dependency logic from ``rocoto/gfs_tasks.py`` for
-        forecast-only mode.  Task references use the {RUN}_ prefix to
-        match emitted node names.
+        forecast-only mode.
         """
         tasks = self._task_names
-        run = self._run
 
         def has(name):
             return name in tasks
 
-        def ref(name):
-            return f'{run}_{name}'
-
         if task_name == 'stage_ic':
             if has('fetch'):
-                return f'{ref("fetch")} == complete'
+                return 'fetch == complete'
             return None
 
         if task_name == 'aerosol_init':
@@ -435,81 +430,81 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             return None
 
         if task_name == 'fcst':
-            deps = [f'{ref("stage_ic")} == complete']
+            deps = ['stage_ic == complete']
             if has('waveinit'):
-                deps.append(f'{ref("waveinit")} == complete')
+                deps.append('waveinit == complete')
             if has('aerosol_init'):
-                deps.append(f'{ref("aerosol_init")} == complete')
+                deps.append('aerosol_init == complete')
             return ' and '.join(deps)
 
         if task_name == 'atmupp':
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name == 'goesupp':
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name == 'atmos_prod':
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name == 'ocean_prod':
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name == 'ice_prod':
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name in ('tracker', 'genesis', 'genesis_fsu', 'metp'):
-            return f'{ref("atmos_prod")} == complete'
+            return 'atmos_prod == complete'
 
         if task_name == 'postsnd':
-            return f'{ref("atmos_prod")} == complete'
+            return 'atmos_prod == complete'
 
         if task_name in ('gempak', 'gempakmeta'):
-            return f'{ref("atmos_prod")} == complete'
+            return 'atmos_prod == complete'
 
         if task_name in ('awips_20km_1p0deg', 'fbwind'):
-            return f'{ref("atmos_prod")} == complete'
+            return 'atmos_prod == complete'
 
         if task_name in ('wavepostgridded', 'wavepostpnt',
                          'wavepostbndpnt', 'wavepostbndpntbll'):
-            return f'{ref("fcst")} == complete'
+            return 'fcst == complete'
 
         if task_name in ('wavegempak',):
-            return f'{ref("wavepostgridded")} == complete'
+            return 'wavepostgridded == complete'
 
         if task_name in ('waveawipsbulls', 'waveawipsgridded'):
-            return f'{ref("wavepostgridded")} == complete'
+            return 'wavepostgridded == complete'
 
         if task_name in ('arch_tars', 'globus_arch'):
-            return f'{ref("arch_vrfy")} == complete'
+            return 'arch_vrfy == complete'
 
         if task_name == 'arch_vrfy':
-            deps = [f'{ref("atmos_prod")} == complete']
+            deps = ['atmos_prod == complete']
             if has('tracker'):
-                deps.append(f'{ref("tracker")} == complete')
+                deps.append('tracker == complete')
             if has('genesis'):
-                deps.append(f'{ref("genesis")} == complete')
+                deps.append('genesis == complete')
             if has('genesis_fsu'):
-                deps.append(f'{ref("genesis_fsu")} == complete')
+                deps.append('genesis_fsu == complete')
             if has('ocean_prod'):
-                deps.append(f'{ref("ocean_prod")} == complete')
+                deps.append('ocean_prod == complete')
             if has('ice_prod'):
-                deps.append(f'{ref("ice_prod")} == complete')
+                deps.append('ice_prod == complete')
             if has('wavepostgridded'):
-                deps.append(f'{ref("wavepostgridded")} == complete')
+                deps.append('wavepostgridded == complete')
             if has('wavepostpnt'):
-                deps.append(f'{ref("wavepostpnt")} == complete')
+                deps.append('wavepostpnt == complete')
             if has('wavepostbndpnt'):
-                deps.append(f'{ref("wavepostbndpnt")} == complete')
+                deps.append('wavepostbndpnt == complete')
             if has('wavepostbndpntbll'):
-                deps.append(f'{ref("wavepostbndpntbll")} == complete')
+                deps.append('wavepostbndpntbll == complete')
             return ' and '.join(deps)
 
         if task_name == 'cleanup':
-            deps = [f'{ref("arch_vrfy")} == complete']
+            deps = ['arch_vrfy == complete']
             if has('arch_tars'):
-                deps.append(f'{ref("arch_tars")} == complete')
+                deps.append('arch_tars == complete')
             if has('globus_arch'):
-                deps.append(f'{ref("globus_arch")} == complete')
+                deps.append('globus_arch == complete')
             return ' and '.join(deps)
 
         return None
@@ -535,7 +530,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_simple_task(self, task_name: str, indent: int
                           ) -> Tuple[List[str], str]:
-        """Emit a single non-product task node with {RUN}_ prefix."""
+        """Emit a single non-product task node."""
         sp = ' ' * indent
         tsp = ' ' * (indent + 2)
         lines = []
@@ -543,8 +538,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
 
-        node_name = f'{self._run}_{task_name}'
-        lines.append(f'{sp}task {node_name}')
+        lines.append(f'{sp}task {task_name}')
         lines.append(f"{tsp}edit TASK '{task_name}'")
 
         walltime = res.get('walltime', '00:30:00')
@@ -606,7 +600,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         is_exclusive = native and '--exclusive' in str(native)
 
         # Family wrapping all forecast-hour groups
-        node_name = f'{self._run}_{task_name}'
+        node_name = task_name
         lines.append(f'{sp}family {node_name}')
         lines.append(f"{fsp}edit TASK '{task_name}'")
         lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
