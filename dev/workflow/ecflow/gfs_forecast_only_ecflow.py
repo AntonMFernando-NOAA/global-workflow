@@ -485,28 +485,35 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
     def _emit_task(self, task_name: str, indent: int
                    ) -> Tuple[List[str], str]:
         """
-        Emit a single task block with edit variables and trigger.
+        Emit a task block (or a family of per-group subtasks for product jobs).
 
-        For product tasks (atmos_prod, ocean_prod, etc.), includes
-        FHR_LIST, FHR_COUNT, and group info as edit variables showing
-        the forecast hours the task processes.  Walltime is scaled by
-        the largest group size.
+        Product tasks (atmos_prod, ocean_prod, etc.) are emitted as an
+        ecFlow family containing one child task per forecast-hour group,
+        each with its own FHR_LIST and scaled walltime.  Non-product
+        tasks are emitted as a single task node.
 
         Returns (lines, task_name).
         """
+        fhrs = self._get_forecast_hours(task_name)
+
+        if fhrs is not None:
+            return self._emit_product_family(task_name, fhrs, indent)
+
+        return self._emit_simple_task(task_name, indent)
+
+    def _emit_simple_task(self, task_name: str, indent: int
+                          ) -> Tuple[List[str], str]:
+        """Emit a single non-product task node."""
         sp = ' ' * indent
+        tsp = ' ' * (indent + 2)
         lines = []
 
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
-        fhrs = self._get_forecast_hours(task_name)
 
         lines.append(f'{sp}task {task_name}')
-
-        tsp = ' ' * (indent + 2)
         lines.append(f"{tsp}edit TASK '{task_name}'")
 
-        # Per-task resource overrides
         walltime = res.get('walltime', '00:30:00')
         nodes = res.get('nodes', 1)
         ntasks = res.get('ntasks', 1)
@@ -514,34 +521,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         partition = res.get('partition')
         native = res.get('native', '')
         is_exclusive = native and '--exclusive' in str(native)
-
-        # For product tasks, scale walltime and emit forecast hour details
-        if fhrs is not None:
-            prod_info = _PRODUCT_TASKS[task_name]
-            max_tasks = self._configs.get(
-                prod_info['config'], {}).get('MAX_TASKS', 25)
-            ngroups = min(max_tasks, len(fhrs))
-
-            groups = self._group_fhrs(fhrs, ngroups)
-            largest_group = max(len(grp) for grp in groups)
-
-            walltime = Tasks.multiply_HMS(walltime, largest_group)
-
-            fhr_strs = [str(f) for f in fhrs]
-            lines.append(f"{tsp}# {len(fhrs)} forecast hours in "
-                         f"{ngroups} groups (largest: {largest_group} fhrs)")
-            lines.append(f"{tsp}edit FHR_LIST '{','.join(fhr_strs)}'")
-            lines.append(f"{tsp}edit FHR_COUNT '{len(fhrs)}'")
-            lines.append(f"{tsp}edit NGROUPS '{ngroups}'")
-            lines.append(f"{tsp}edit LARGEST_GROUP '{largest_group}'")
-
-            grp_labels = []
-            for grp in groups:
-                if len(grp) == 1:
-                    grp_labels.append(f'f{grp[0]:03d}')
-                else:
-                    grp_labels.append(f'f{grp[0]:03d}-f{grp[-1]:03d}')
-            lines.append(f"{tsp}# Groups: {', '.join(grp_labels)}")
 
         lines.append(f"{tsp}edit WALLTIME '{walltime}'")
         if nodes > 1:
@@ -557,6 +536,77 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
+
+        return lines, task_name
+
+    def _emit_product_family(self, task_name: str, fhrs: List[int],
+                             indent: int) -> Tuple[List[str], str]:
+        """Emit a product task as a family of per-group subtasks.
+
+        Each child task processes a subset of forecast hours.  The family
+        completes when all children complete, giving ecFlow UI visibility
+        into per-group progress.
+        """
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)   # family-level indent
+        tsp = ' ' * (indent + 4)   # task-level indent
+        lines = []
+
+        res = self._get_resource_for_task(task_name)
+        trigger = self._get_trigger(task_name)
+
+        prod_info = _PRODUCT_TASKS[task_name]
+        max_tasks = self._configs.get(
+            prod_info['config'], {}).get('MAX_TASKS', 25)
+        ngroups = min(max_tasks, len(fhrs))
+        groups = self._group_fhrs(fhrs, ngroups)
+
+        base_walltime = res.get('walltime', '00:15:00')
+        nodes = res.get('nodes', 1)
+        ntasks = res.get('ntasks', 1)
+        threads = res.get('threads', 1)
+        partition = res.get('partition')
+        native = res.get('native', '')
+        is_exclusive = native and '--exclusive' in str(native)
+
+        # Family wrapping all forecast-hour groups
+        lines.append(f'{sp}family {task_name}')
+        lines.append(f"{fsp}edit TASK '{task_name}'")
+        lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
+
+        if trigger:
+            lines.append(f'{fsp}trigger {trigger}')
+
+        # Shared resource defaults at family level
+        if ntasks > 1:
+            lines.append(f"{fsp}edit NTASKS '{ntasks}'")
+        if threads > 1:
+            lines.append(f"{fsp}edit CPUS_PER_TASK '{threads}'")
+        if partition and partition != self._base.get('PARTITION_BATCH'):
+            lines.append(f"{fsp}edit QUEUE '{partition}'")
+        if is_exclusive:
+            lines.append(f"{fsp}edit EXCLUSIVE 'YES'")
+        if nodes > 1:
+            lines.append(f"{fsp}edit NODES '{nodes}'")
+
+        lines.append('')
+
+        # One child task per forecast-hour group
+        for i, grp in enumerate(groups):
+            if len(grp) == 1:
+                label = f'f{grp[0]:03d}'
+            else:
+                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
+
+            fhr_list_str = ','.join(str(f) for f in grp)
+            grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
+
+            lines.append(f'{fsp}task {label}')
+            lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
+            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
+            lines.append('')
+
+        lines.append(f'{sp}endfamily')
 
         return lines, task_name
 

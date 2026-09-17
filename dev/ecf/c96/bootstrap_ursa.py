@@ -171,8 +171,10 @@ def generate_ecflow_def(expdir: Path) -> Path:
     # result.  Temporarily remove workflow-specific vars so parse_config
     # captures them from the rendered config.base.
     _saved_env = {}
-    for var in ('HOMEglobal', 'EXPDIR', 'COMROOT', 'DATAROOT',
-                'ROTDIR', 'PSLOT', 'NET', 'RUN'):
+    for var in ('EXPDIR', 'COMROOT', 'DATAROOT',
+                'ROTDIR', 'PSLOT', 'NET', 'RUN',
+                'ACCOUNT', 'PARTITION_BATCH', 'PARTITION_SERVICE',
+                'QUEUE', 'QUEUE_SERVICE'):
         if var in os.environ:
             _saved_env[var] = os.environ.pop(var)
 
