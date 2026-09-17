@@ -167,13 +167,25 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
         lines.append('')
 
-        # Emit tasks in dependency order with triggers
-        prev_task = None
+        # ── Cycle family (e.g. "2021032312") ─────────────────────────
+        sdate = self._base['SDATE_GFS']
+        cycle_str = sdate.strftime('%Y%m%d%H')
+        lines.append(f'{" " * indent}family {cycle_str}')
+        indent = 6
+        lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
+        lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
+        lines.append('')
+
+        # Emit tasks with {RUN}_ prefix (Rocoto naming convention)
         for task_name in self._task_names:
             task_lines, trigger_target = self._emit_task(
                 task_name, indent)
             lines += task_lines
             lines.append('')
+
+        # Close cycle family
+        indent = 4
+        lines.append(f'{" " * indent}endfamily')
 
         indent = 2
         lines.append(f'{" " * indent}endfamily')
@@ -523,7 +535,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_simple_task(self, task_name: str, indent: int
                           ) -> Tuple[List[str], str]:
-        """Emit a single non-product task node."""
+        """Emit a single non-product task node with {RUN}_ prefix."""
         sp = ' ' * indent
         tsp = ' ' * (indent + 2)
         lines = []
@@ -531,7 +543,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
 
-        lines.append(f'{sp}task {task_name}')
+        node_name = f'{self._run}_{task_name}'
+        lines.append(f'{sp}task {node_name}')
         lines.append(f"{tsp}edit TASK '{task_name}'")
 
         walltime = res.get('walltime', '00:30:00')
@@ -593,7 +606,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         is_exclusive = native and '--exclusive' in str(native)
 
         # Family wrapping all forecast-hour groups
-        lines.append(f'{sp}family {task_name}')
+        node_name = f'{self._run}_{task_name}'
+        lines.append(f'{sp}family {node_name}')
         lines.append(f"{fsp}edit TASK '{task_name}'")
         lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
 
