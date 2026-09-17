@@ -23,7 +23,6 @@ from typing import Dict, List, Optional, Tuple
 from ecflow.ecflow_suite import EcFlowSuite
 from applications.applications import AppConfig
 from rocoto.tasks import Tasks
-from rocoto.tasks_factory import tasks_factory
 from wxflow import timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
@@ -119,10 +118,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         self._task_names = app_config.task_names[self._run]
         self._options = app_config.run_options[self._run]
         self._configs = app_config.configs[self._run]
-
-        # Create a Rocoto Tasks helper so we can reuse get_resource()
-        self._tasks_helper = tasks_factory.create(
-            app_config.net, app_config, self._run)
 
     # ── Public interface ──────────────────────────────────────────────
 
@@ -322,17 +317,23 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _get_resource_for_task(self, task_name: str) -> Dict:
         """
-        Get the resource dict for a task using the same logic as Rocoto.
+        Extract task resources directly from the already-parsed AppConfig.
 
-        Falls back to sensible defaults if config.resources does not
-        define the task (e.g. a newly added task).
+        Reads walltime, ntasks, threads, etc. from
+        ``app_config.configs[run][config_name]`` which was populated by
+        ``Configuration.parse_config`` during AppConfig initialization.
+        No additional subprocess calls are made.
         """
+        import math
+
         resource_step = _RESOURCE_STEP_MAP.get(task_name, task_name)
+        base = self._base
+
         try:
-            return self._tasks_helper.get_resource(resource_step)
-        except (KeyError, Exception) as e:
-            logger.warning(f'Could not get resources for {task_name} '
-                           f'(step={resource_step}): {e}. Using defaults.')
+            task_config = self._configs[resource_step]
+        except KeyError:
+            logger.warning(f'No config for {task_name} '
+                           f'(step={resource_step}). Using defaults.')
             return {
                 'walltime': '00:30:00',
                 'nodes': 1,
@@ -340,11 +341,38 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
                 'ppn': 1,
                 'threads': 1,
                 'memory': None,
-                'account': self._base['ACCOUNT'],
-                'queue': self._base.get('PARTITION_BATCH', 'batch'),
-                'partition': self._base.get('PARTITION_BATCH', 'batch'),
+                'partition': base.get('PARTITION_BATCH', 'batch'),
                 'native': None,
             }
+
+        walltime = task_config.get('walltime', '00:30:00')
+        ntasks = int(task_config.get('ntasks', 1))
+        ppn = int(task_config.get('tasks_per_node', 1))
+        nodes = math.ceil(ntasks / max(ppn, 1))
+        threads = int(task_config.get('threads_per_task', 1))
+        memory = task_config.get('memory', None)
+        is_exclusive = task_config.get('is_exclusive', False)
+
+        # Determine partition based on task type
+        service_task = task_name in _SERVICE_TASKS
+        if service_task:
+            partition = base.get('PARTITION_SERVICE',
+                                 base.get('PARTITION_BATCH', 'batch'))
+        else:
+            partition = base.get('PARTITION_BATCH', 'batch')
+
+        native = '--exclusive' if is_exclusive else '--export=NONE'
+
+        return {
+            'walltime': walltime,
+            'nodes': nodes,
+            'ntasks': ntasks,
+            'ppn': ppn,
+            'threads': threads,
+            'memory': memory,
+            'partition': partition,
+            'native': native,
+        }
 
     def _get_trigger(self, task_name: str) -> Optional[str]:
         """
