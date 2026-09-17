@@ -199,9 +199,25 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         # ecFlow server connection (placeholders — overwritten by
         # bootstrap or the ecflow_client environment)
-        ecf_home = os.environ.get('ECF_HOME', '/tmp/ecflow')
+        # ECF_HOME holds runtime .job files; ECF_JOBOUT holds job stdout.
+        # Both go under ROTDIR/logs to match the Rocoto log layout:
+        #   COMROOT/{PSLOT}/logs/{YYYYMMDDHH}/{task}.{tryno}
+        sdate = base['SDATE_GFS']
+        cycle_dir = sdate.strftime('%Y%m%d%H')
+        rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
+                                                  self.pslot))
+        ecf_home = os.path.join(rotdir, 'logs', cycle_dir)
+
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
+
+        # ECF_FILES and ECF_INCLUDE point to the .ecf source in the repo.
+        ecf_files = os.environ.get('ECF_FILES',
+                                   os.path.join(self.HOMEglobal, 'dev', 'ecf',
+                                                'ursa', 'scripts'))
+        ecf_include = os.environ.get('ECF_INCLUDE',
+                                     os.path.join(self.HOMEglobal, 'dev', 'ecf',
+                                                  'ursa', 'include'))
 
         lines.append(f"{sp}# ecFlow server connection")
         lines.append(f"{sp}edit ECF_LOGHOST '{ecf_host}'")
@@ -209,9 +225,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}")
         lines.append(f"{sp}# File locations")
         lines.append(f"{sp}edit ECF_HOME    '{ecf_home}'")
-        lines.append(f"{sp}edit ECF_INCLUDE '{ecf_home}/include'")
-        lines.append(f"{sp}edit ECF_FILES   '{ecf_home}/scripts'")
-        lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_home}/output/%ECF_NAME%.%ECF_TRYNO%'")
+        lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
+        lines.append(f"{sp}edit ECF_FILES   '{ecf_files}'")
+        lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_home}/%ECF_NAME%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
         # Slurm job submission commands
@@ -517,16 +533,19 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         walltime = res.get('walltime', '00:30:00')
         nodes = res.get('nodes', 1)
         ntasks = res.get('ntasks', 1)
+        ppn = res.get('ppn', ntasks)
         threads = res.get('threads', 1)
         partition = res.get('partition')
         native = res.get('native', '')
         is_exclusive = native and '--exclusive' in str(native)
 
         lines.append(f"{tsp}edit WALLTIME '{walltime}'")
+        # NODES and NTASKS are always emitted for non-default values.
+        # NTASKS maps to --ntasks-per-node in slurm_ursa.h (per-node count).
         if nodes > 1:
             lines.append(f"{tsp}edit NODES '{nodes}'")
-        if ntasks > 1:
-            lines.append(f"{tsp}edit NTASKS '{ntasks}'")
+        if ppn > 1:
+            lines.append(f"{tsp}edit NTASKS '{ppn}'")
         if threads > 1:
             lines.append(f"{tsp}edit CPUS_PER_TASK '{threads}'")
         if partition and partition != self._base.get('PARTITION_BATCH'):
