@@ -101,24 +101,20 @@ def validate_environment() -> None:
 def load_case_yaml(yaml_path: Path) -> AttrDict:
     """Parse the CI case YAML with host and environment template variables.
 
-    Sets default values for ``pslot`` and ``RUNTESTS`` when not already
-    present in the environment, matching the convention used by the
-    CI test infrastructure.
+    Sets default values for ``pslot`` and ``RUNTESTS`` in ``os.environ``
+    when not already present, so that Jinja2 ``getenv`` filters resolve
+    to usable paths instead of the literal string ``UNDEFINED``.
     """
+    # Provide defaults for CI variables consumed via {{ 'var' | getenv }}
+    if not os.environ.get('pslot'):
+        os.environ['pslot'] = yaml_path.stem + '_ecflow'
+    if not os.environ.get('RUNTESTS'):
+        os.environ['RUNTESTS'] = str(HOMEglobal.parent / 'RUNTESTS')
+
     host = Host()
     data = AttrDict(HOMEglobal=str(HOMEglobal))
     data.update(host.info)
     data.update(os.environ)
-
-    # Provide defaults for CI variables that are normally set by the
-    # test harness but absent during manual bootstrap runs.
-    if 'pslot' not in data or data['pslot'] == 'UNDEFINED':
-        data['pslot'] = os.environ.get(
-            'PSLOT', yaml_path.stem + '_ecflow')
-    if 'RUNTESTS' not in data or data['RUNTESTS'] == 'UNDEFINED':
-        data['RUNTESTS'] = os.environ.get(
-            'RUNTESTS', str(HOMEglobal.parent / 'RUNTESTS'))
-
     return parse_j2yaml(path=yaml_path, data=data)
 
 
