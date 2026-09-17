@@ -278,10 +278,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         # ecFlow server connection (placeholders — overwritten by
         # bootstrap or the ecflow_client environment)
-        # ECF_HOME holds runtime .job files; ECF_JOBOUT holds job stdout.
-        # ecFlow appends %ECF_NAME% (which includes the suite name) under
-        # ECF_HOME.  Setting ECF_HOME to ROTDIR/logs and using ECF_JOBOUT
-        # with %TASK% produces flat output in the correct location.
+        # ECF_HOME is the base for .job file generation.  ecFlow appends
+        # %ECF_NAME% (/<suite>/gfs/<cycle>/<task>) under ECF_HOME.
+        # ECF_OUT redirects job output so it lands directly under
+        # ROTDIR/logs/gfs/<cycle>/ without a redundant suite-name level.
         rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
                                                   self.pslot))
         ecf_log_dir = os.path.join(rotdir, 'logs')
