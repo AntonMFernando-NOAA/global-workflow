@@ -30,7 +30,7 @@ export job="atmos_products"
 export FORECAST_HOUR jobid
 IFS=',' read -ra _fhrs <<< "%FHR_LIST%"
 for fhr in "${_fhrs[@]}"; do
-  fhr3=$(printf '%03d' "${fhr}")
+  fhr3=$(printf '%%03d' "${fhr}")))
   export FORECAST_HOUR="${fhr}"
   export FHR_LIST="${fhr}"
   jobid="${job}_f${fhr3}.${SLURM_JOB_ID:-$$}"
