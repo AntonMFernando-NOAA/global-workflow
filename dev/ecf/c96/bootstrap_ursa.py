@@ -161,7 +161,20 @@ def generate_ecflow_def(expdir: Path) -> Path:
 
     Returns the path to the generated .def file.
     """
-    setup_workflow.main([str(expdir), "ecflow"])
+    # Configuration.parse_config diffs env before/after sourcing config
+    # files.  Variables already in os.environ are excluded from the
+    # result.  Temporarily remove workflow-specific vars so parse_config
+    # captures them from the rendered config.base.
+    _saved_env = {}
+    for var in ('HOMEglobal', 'EXPDIR', 'COMROOT', 'DATAROOT',
+                'ROTDIR', 'PSLOT', 'NET', 'RUN'):
+        if var in os.environ:
+            _saved_env[var] = os.environ.pop(var)
+
+    try:
+        setup_workflow.main([str(expdir), "ecflow"])
+    finally:
+        os.environ.update(_saved_env)
 
     # Find the generated .def (named after the pslot)
     def_files = list(expdir.glob("*.def"))
