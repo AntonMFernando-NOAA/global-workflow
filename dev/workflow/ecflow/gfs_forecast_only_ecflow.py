@@ -217,7 +217,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         # automatically from the cycle family in the suite hierarchy.
         rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
                                                   self.pslot))
-        ecf_log_dir = os.path.join(rotdir, 'logs')
+        ecf_log_dir = os.path.join(os.path.dirname(rotdir), 'logs')
 
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
@@ -622,7 +622,14 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines.append('')
 
-        # One child task per forecast-hour group
+        # One child task per forecast-hour group.
+        # ECF_SCRIPT points children at the parent's .ecf file since
+        # ecFlow would otherwise look for f000_f002.ecf which does not exist.
+        ecf_files = os.environ.get('ECF_FILES',
+                                   os.path.join(self.HOMEglobal, 'dev', 'ecf',
+                                                'ursa', 'scripts'))
+        parent_ecf = os.path.join(ecf_files, f'{task_name}.ecf')
+
         for i, grp in enumerate(groups):
             if len(grp) == 1:
                 label = f'f{grp[0]:03d}'
@@ -633,6 +640,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
             lines.append(f'{fsp}task {label}')
+            lines.append(f"{tsp}edit ECF_SCRIPT '{parent_ecf}'")
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
             lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
             lines.append('')
