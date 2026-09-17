@@ -617,7 +617,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             if len(grp) == 1:
                 label = f'f{grp[0]:03d}'
             else:
-                label = f'f{grp[0]:03d}-f{grp[-1]:03d}'
+                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
