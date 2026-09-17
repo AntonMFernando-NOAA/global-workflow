@@ -256,6 +256,62 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         return lines
 
+    def _get_forecast_hours(self, task_name: str) -> Optional[List[int]]:
+        """
+        Compute the list of forecast hours for a product task.
+
+        Uses the same logic as ``Tasks._get_forecast_hours``: high-frequency
+        output up to FHMAX_HF_GFS at FHOUT_HF_GFS intervals, then standard
+        output at FHOUT_GFS intervals to FHMAX_GFS.
+
+        Returns None for non-product tasks.
+        """
+        if task_name not in _PRODUCT_TASKS:
+            return None
+
+        prod_info = _PRODUCT_TASKS[task_name]
+        config_name = prod_info['config']
+        component = prod_info['component']
+
+        if config_name not in self._configs:
+            return None
+
+        config = self._configs[config_name].copy()
+
+        # Ocean/ice have no high-frequency output
+        if component in ('ocean', 'ice'):
+            config['FHMAX_HF_GFS'] = 0
+
+        if component == 'ocean':
+            config['FHOUT_HF_GFS'] = config.get('FHOUT_OCN_GFS', 6)
+            config['FHOUT_GFS'] = config.get('FHOUT_OCN_GFS', 6)
+        elif component == 'ice':
+            config['FHOUT_HF_GFS'] = config.get('FHOUT_ICE_GFS', 6)
+            config['FHOUT_GFS'] = config.get('FHOUT_ICE_GFS', 6)
+        elif component == 'wave':
+            config['FHMAX_HF_GFS'] = config.get('FHMAX_HF_WAV', 120)
+            config['FHOUT_HF_GFS'] = config.get('FHOUT_HF_WAV', 1)
+            config['FHOUT_GFS'] = config.get('FHOUT_WAV_GFS', 3)
+
+        fhmin = config.get('FHMIN', 0)
+        fhmax = config.get('FHMAX_GFS', 120)
+        fhout = config.get('FHOUT_GFS', 3)
+        fhout_hf = config.get('FHOUT_HF_GFS', 1)
+        fhmax_hf = config.get('FHMAX_HF_GFS', 0)
+
+        if fhmax_hf > 0 and fhout_hf > 0:
+            fhrs_hf = list(range(fhmin, min(fhmax_hf, fhmax) + fhout_hf, fhout_hf))
+            last_hf = fhrs_hf[-1]
+            fhrs = fhrs_hf + list(range(last_hf + fhout, fhmax + fhout, fhout))
+        else:
+            fhrs = list(range(fhmin, fhmax + fhout, fhout))
+
+        # Ocean/ice do not produce output at fhr 0
+        if component in ('ocean', 'ice') and 0 in fhrs:
+            fhrs.remove(0)
+
+        return fhrs
+
     def _get_resource_for_task(self, task_name: str) -> Dict:
         """
         Get the resource dict for a task using the same logic as Rocoto.
