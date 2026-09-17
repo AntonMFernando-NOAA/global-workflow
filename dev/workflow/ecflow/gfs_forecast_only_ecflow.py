@@ -200,13 +200,12 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         # ecFlow server connection (placeholders — overwritten by
         # bootstrap or the ecflow_client environment)
         # ECF_HOME holds runtime .job files; ECF_JOBOUT holds job stdout.
-        # Both go under ROTDIR/logs to match the Rocoto log layout:
-        #   COMROOT/{PSLOT}/logs/{YYYYMMDDHH}/{task}.{tryno}
+        # Both go under ROTDIR/logs/{YYYYMMDDHH}/ to match Rocoto's layout.
         sdate = base['SDATE_GFS']
         cycle_dir = sdate.strftime('%Y%m%d%H')
         rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
                                                   self.pslot))
-        ecf_home = os.path.join(rotdir, 'logs', cycle_dir)
+        ecf_log_dir = os.path.join(rotdir, 'logs', cycle_dir)
 
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
@@ -224,10 +223,12 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_PORT    '{ecf_port}'")
         lines.append(f"{sp}")
         lines.append(f"{sp}# File locations")
-        lines.append(f"{sp}edit ECF_HOME    '{ecf_home}'")
+        lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_files}'")
-        lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_home}/%ECF_NAME%.%ECF_TRYNO%'")
+        # Use %TASK% for flat output — ecFlow's %ECF_NAME% includes the
+        # full node hierarchy which creates unwanted subdirectories.
+        lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
         # Slurm job submission commands
@@ -243,8 +244,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit NET      '{base['NET']}'")
         lines.append(f"{sp}edit RUN      '{self._run}'")
         lines.append(f"{sp}edit APP      '{self._options.get('app', 'ATM')}'")
-        lines.append(f"{sp}edit ACCOUNT  '{base['ACCOUNT']}'")
-        lines.append(f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
+        account = base.get('ACCOUNT', os.environ.get('HPC_ACCOUNT', 'fv3-cpu'))
+        lines.append(f"{sp}edit ACCOUNT  '{account}'")        lines.append(f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
         lines.append(f"{sp}edit PSLOT    '{self.pslot}'")
         lines.append(f"{sp}edit CASE     '{base['CASE']}'")
         lines.append(f"{sp}edit FHMAX_GFS '{base.get('FHMAX_GFS', 120)}'")
@@ -615,7 +616,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             if len(grp) == 1:
                 label = f'f{grp[0]:03d}'
             else:
-                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
+                label = f'f{grp[0]:03d}-f{grp[-1]:03d}'
 
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
