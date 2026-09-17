@@ -212,12 +212,12 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         # ecFlow server connection (placeholders — overwritten by
         # bootstrap or the ecflow_client environment)
         # ECF_HOME holds runtime .job files; ECF_JOBOUT holds job stdout.
-        # Both go under ROTDIR/logs/{YYYYMMDDHH}/ to match Rocoto's layout.
-        sdate = base['SDATE_GFS']
-        cycle_dir = sdate.strftime('%Y%m%d%H')
+        # Both go under ROTDIR/logs/. ecFlow appends the full node path
+        # (%ECF_NAME%) under ECF_HOME, so the cycle directory is created
+        # automatically from the cycle family in the suite hierarchy.
         rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
                                                   self.pslot))
-        ecf_log_dir = os.path.join(rotdir, 'logs', cycle_dir)
+        ecf_log_dir = os.path.join(rotdir, 'logs')
 
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
