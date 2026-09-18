@@ -133,13 +133,13 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def write(self, def_file: str = None) -> str:
         """
-        Generate the ecFlow ``.def`` file, create the ECF_FILES symlink
+        Generate the ecFlow ``.def`` file, create the ECF_FILES script
         directory, and write both to disk.
 
-        The symlink directory lives at ``{EXPDIR}/ecf_scripts/`` and
-        contains one symlink per ecFlow task, all pointing back to the
-        real ``.ecf`` files in the repo.  Product family children
-        (e.g. ``f000_f002.ecf``) symlink to their parent's ``.ecf``
+        The script directory lives at ``{EXPDIR}/ecf_scripts/`` and
+        contains one copy per ecFlow task of the ``.ecf`` files from
+        the repo.  Product family children (e.g. ``f000_f002.ecf``)
+        get a copy of their parent's ``.ecf``
         (e.g. ``atmos_prod.ecf``).
 
         Parameters
@@ -157,14 +157,14 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         suite_name = self.pslot
 
-        # Symlink directory: all .ecf lookups resolve here.
+        # Script directory: all .ecf lookups resolve here.
         self._ecf_scripts_dir = Path(self.expdir) / 'ecf_scripts'
         self._ecf_src_dir = Path(
             os.environ.get('ECF_FILES',
                            os.path.join(self.HOMEglobal, 'dev', 'ecflow',
                                         'scripts')))
 
-        # Collect symlinks to create: {link_name: target_ecf_name}
+        # Collect copies to create: {dest_name: source_ecf_name}
         self._symlink_map: Dict[str, str] = {}
 
         lines: List[str] = []
@@ -289,10 +289,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
 
-        # ECF_FILES points to a symlink directory under EXPDIR.
-        # The symlinks are created by _create_ecf_symlinks() after the
-        # .def is written; each task gets a symlink back to the real
-        # .ecf in the repo.
+        # ECF_FILES points to the script directory under EXPDIR.
+        # _create_ecf_scripts() copies the .ecf files there after
+        # the .def is written.
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get('ECF_INCLUDE',
                                      os.path.join(self.HOMEglobal, 'dev', 'ecflow',
