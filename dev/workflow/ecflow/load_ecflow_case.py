@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
-"""Create an experiment and load its ecFlow suite from a CI case YAML.
+"""Generic ecFlow case loader.
 
-Parses a case YAML (e.g. dev/ci/cases/pr/C48_ATM.yaml), creates the
-experiment via setup_expt, generates the ecFlow .def via setup_workflow
-(ecflow engine), loads the definition into the ecFlow server, and
-optionally begins the suite.
+Parses a CI case YAML, creates the experiment via setup_expt, generates
+the ecFlow .def via setup_workflow (ecflow engine), loads the definition
+into the ecFlow server, and optionally begins the suite.
 
 The generated .def contains all edit variables (paths, resources,
 partitions) baked in from the experiment's config files, so no
 ``--alter`` overrides are needed after loading.
+
+Test-specific entry points (e.g. ``c48_atm_ecflow.py``) provide
+default YAML paths and delegate to this module's ``run()`` function.
 
 Prerequisites
 -------------
@@ -18,7 +20,7 @@ Prerequisites
 3. Environment sourced with ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal::
 
        python3 dev/workflow/ecflow/load_ecflow_case.py \\
-           --yaml dev/ci/cases/pr/C48_ATM.yaml
+           --yaml dev/ci/cases/pr/<CASE>.yaml
 """
 
 import argparse
@@ -44,8 +46,6 @@ from wxflow import AttrDict, parse_j2yaml  # noqa: E402
 
 REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "HOMEglobal")
 
-DEFAULT_YAML = HOMEglobal / "dev" / "ci" / "cases" / "pr" / "C48_ATM.yaml"
-
 
 def ecflow_client(*args: str) -> subprocess.CompletedProcess:
     """Run ecflow_client with the given arguments."""
@@ -65,17 +65,25 @@ def ecflow_client_quiet(*args: str) -> bool:
         return False
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(default_yaml: Path = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Parameters
+    ----------
+    default_yaml : Path, optional
+        Default case YAML path.  When None, ``--yaml`` is required.
+    """
     parser = argparse.ArgumentParser(
         description="Create an experiment and load its ecFlow suite "
                     "from a CI case YAML."
     )
-    parser.add_argument(
-        "-y", "--yaml",
-        type=Path,
-        default=DEFAULT_YAML,
-        help=f"CI case YAML (default: {DEFAULT_YAML.relative_to(HOMEglobal)})",
-    )
+    yaml_kwargs = dict(type=Path, help="CI case YAML file")
+    if default_yaml is not None:
+        yaml_kwargs['default'] = default_yaml
+        yaml_kwargs['help'] += f" (default: {default_yaml.relative_to(HOMEglobal)})"
+    else:
+        yaml_kwargs['required'] = True
+    parser.add_argument("-y", "--yaml", **yaml_kwargs)
     parser.add_argument(
         "--load-only",
         action="store_true",
@@ -231,8 +239,17 @@ def cleanup_stale_files(pslot: str, comroot: Path, runtests: Path) -> bool:
     return True
 
 
-def main() -> None:
-    args = parse_args()
+def run(default_yaml: Path = None) -> None:
+    """Entry point for loading an ecFlow case.
+
+    Parameters
+    ----------
+    default_yaml : Path, optional
+        Default case YAML.  When provided, ``--yaml`` becomes optional.
+        Test-specific scripts pass their YAML here; the generic CLI
+        requires ``--yaml`` explicitly.
+    """
+    args = parse_args(default_yaml=default_yaml)
 
     validate_environment()
 
@@ -284,7 +301,7 @@ def main() -> None:
         n_ecf = sum(1 for f in ecf_scripts_dir.glob("*.ecf"))
         print(f"  ECF_FILES directory: {ecf_scripts_dir} ({n_ecf} files)")
 
-    # Restore ecFlow server vars — config parsing inside setup_workflow
+    # Restore ecFlow server vars — setup_workflow's config parsing
     # may alter the module environment, unsetting ECF_HOST/ECF_PORT.
     os.environ['ECF_HOST'] = ecf_host
     os.environ['ECF_PORT'] = ecf_port
@@ -315,6 +332,11 @@ def main() -> None:
     print()
     print("To refresh .ecf files after editing (without regenerating .def):")
     print(f"  bash dev/workflow/ecflow/sync_ecf_scripts.sh {expdir_path}/ecf_scripts")
+
+
+def main() -> None:
+    """Generic CLI entry point.  Requires ``--yaml``."""
+    run()
 
 
 if __name__ == "__main__":
