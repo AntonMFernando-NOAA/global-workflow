@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-GFS forecast-only ecFlow suite generator (generic base class).
+GFS forecast-only ecFlow suite generator.
 
 Generates a complete ``.def`` file from the same ``AppConfig`` and task/resource
 data that the Rocoto XML generator uses.  The output is self-contained: every
@@ -9,37 +9,21 @@ ecFlow edit variable (ECF_HOME, ACCOUNT, QUEUE, per-task WALLTIME, etc.) is
 baked into the definition so that ``ecflow_client --load`` works with **no**
 subsequent ``--alter`` overrides.
 
-This module provides the **generic** machinery for any GFS forecast-only
-ecFlow suite.  Case-specific details — the J-Job mapping, resource-step
-overrides, service-task classification, product-task definitions, and
-dependency triggers — are supplied by subclasses (e.g.
-``C48ATMEcFlowSuite``).
-
-Subclasses must populate the following class attributes:
-
-    JJOB_MAP : Dict[str, str]
-        Logical task name → J-Job basename under ``dev/jobs/``.
-    RESOURCE_STEP_MAP : Dict[str, str]
-        Task names whose config.resources step name differs from the
-        logical task name.
-    SERVICE_TASKS : Set[str]
-        Tasks that run on the service partition.
-    PRODUCT_TASKS : Dict[str, Dict[str, str]]
-        Tasks that process forecast hours in groups.  Each entry maps
-        ``task_name → {'config': <config_name>, 'component': <component>}``.
-
-And must override:
-
-    _get_trigger(task_name) → Optional[str]
-        Return the ecFlow trigger expression for a task.
+Task metadata (triggers, resources, J-Job mapping, product-task flags) comes
+from the ``EcFlowTasks`` hierarchy (mirroring ``rocoto/gfs_tasks.py``),
+instantiated via ``ecflow_tasks_factory``.  This suite generator is a pure
+consumer — it iterates the task list, fetches each task dict, and renders
+it into the ``.def`` format.
 """
 
+import math
 import os
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Tuple
 
 from ecflow.ecflow_suite import EcFlowSuite
+from ecflow.ecflow_tasks_factory import ecflow_tasks_factory
 from applications.applications import AppConfig
 from rocoto.tasks import Tasks
 from wxflow import timedelta_to_HMS
@@ -49,7 +33,7 @@ logger = getLogger(__name__.split('.')[-1])
 
 class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
     """
-    Generic ecFlow suite generator for GFS forecast-only workflows.
+    ecFlow suite generator for GFS forecast-only workflows.
 
     Produces a ``.def`` file that mirrors the Rocoto XML for the same
     ``AppConfig``.  All variables are baked into the definition so the
@@ -57,10 +41,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         ecflow_client --load=<path>.def
         ecflow_client --begin=<suite_name>
-
-    Subclasses must set the class attributes ``JJOB_MAP``,
-    ``RESOURCE_STEP_MAP``, ``SERVICE_TASKS``, ``PRODUCT_TASKS`` and
-    override ``_get_trigger()``.
 
     Parameters
     ----------
@@ -71,25 +51,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         (currently only ``verbosity``).
     """
 
-    # ── Subclass-provided case data (empty defaults) ──────────────────
-    #
-    # Subclasses populate these with the task mappings, resource
-    # overrides, and product-task definitions specific to their case.
-
-    JJOB_MAP: Dict[str, str] = {}
-    """Logical task name → J-Job script basename under dev/jobs/."""
-
-    RESOURCE_STEP_MAP: Dict[str, str] = {}
-    """Task names where the config.resources step name differs from the
-    logical task name used in get_task_names()."""
-
-    SERVICE_TASKS: Set[str] = set()
-    """Tasks that run on the service partition rather than compute."""
-
-    PRODUCT_TASKS: Dict[str, Dict[str, str]] = {}
-    """Product tasks that process forecast hours in groups.
-    Each entry: ``task_name → {'config': str, 'component': str}``."""
-
     def __init__(self, app_config: AppConfig, ecflow_config: Dict) -> None:
         super().__init__(app_config, ecflow_config)
 
@@ -97,6 +58,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         self._task_names = app_config.task_names[self._run]
         self._options = app_config.run_options[self._run]
         self._configs = app_config.configs[self._run]
+
+        # Create the tasks object via factory (keyed on NET, e.g. 'gfs')
+        self._tasks = ecflow_tasks_factory.create(
+            self._base['NET'], app_config, self._run)
 
     # ── Public interface ──────────────────────────────────────────────
 
@@ -113,12 +78,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         Generate the ecFlow ``.def`` file, create the ECF_FILES script
         directory, and write both to disk.
-
-        The script directory lives at ``{EXPDIR}/ecf_scripts/`` and
-        contains one copy per ecFlow task of the ``.ecf`` files from
-        the repo.  Product family children (e.g. ``f000_f002.ecf``)
-        get a copy of their parent's ``.ecf``
-        (e.g. ``atmos_prod.ecf``).
 
         Parameters
         ----------
@@ -172,10 +131,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
         lines.append('')
 
-        # Emit tasks with {RUN}_ prefix (Rocoto naming convention)
+        # Emit tasks from the tasks object
         for task_name in self._task_names:
-            task_lines, trigger_target = self._emit_task(
-                task_name, indent)
+            task_dict = self._tasks.get_ecflow_task(task_name)
+            task_lines = self._emit_task(task_dict, indent)
             lines += task_lines
             lines.append('')
 
@@ -201,6 +160,124 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         return def_file
 
+    # ── Task rendering ────────────────────────────────────────────────
+
+    def _emit_task(self, task_dict: Dict, indent: int) -> List[str]:
+        """
+        Render an ecFlow task dict into .def lines.
+
+        Dispatches to ``_emit_product_family`` for product tasks or
+        ``_emit_simple_task`` for all others.
+        """
+        if task_dict['product_task']:
+            return self._emit_product_family(task_dict, indent)
+        return self._emit_simple_task(task_dict, indent)
+
+    def _emit_simple_task(self, task_dict: Dict, indent: int) -> List[str]:
+        """Emit a single non-product task node."""
+        sp = ' ' * indent
+        tsp = ' ' * (indent + 2)
+        lines = []
+
+        task_name = task_dict['task_name']
+        res = task_dict['resources']
+        trigger = task_dict['trigger']
+
+        # Register in the copy map
+        self._symlink_map[task_name] = task_name
+
+        lines.append(f'{sp}task {task_name}')
+        lines.append(f"{tsp}edit TASK '{task_name}'")
+
+        lines += self._resource_edits(res, tsp)
+
+        if trigger:
+            lines.append(f'{tsp}trigger {trigger}')
+
+        return lines
+
+    def _emit_product_family(self, task_dict: Dict, indent: int) -> List[str]:
+        """Emit a product task as a family of per-forecast-hour-group children."""
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)
+        tsp = ' ' * (indent + 4)
+        lines = []
+
+        task_name = task_dict['task_name']
+        res = task_dict['resources']
+        trigger = task_dict['trigger']
+        fhrs = task_dict['forecast_hours']
+        config_name = task_dict['config']
+
+        max_tasks = self._configs.get(config_name, {}).get('MAX_TASKS', 25)
+        ngroups = min(max_tasks, len(fhrs))
+        groups = self._group_fhrs(fhrs, ngroups)
+
+        base_walltime = res.get('walltime', '00:15:00')
+
+        # Family wrapping all forecast-hour groups
+        lines.append(f'{sp}family {task_name}')
+        lines.append(f"{fsp}edit TASK '{task_name}'")
+        lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
+
+        if trigger:
+            lines.append(f'{fsp}trigger {trigger}')
+
+        # Shared resource defaults at family level
+        lines += self._resource_edits(res, fsp, skip_walltime=True)
+        lines.append('')
+
+        # One child task per forecast-hour group
+        for i, grp in enumerate(groups):
+            if len(grp) == 1:
+                label = f'f{grp[0]:03d}'
+            else:
+                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
+
+            self._symlink_map[label] = task_name
+
+            fhr_list_str = ','.join(str(f) for f in grp)
+            grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
+
+            lines.append(f'{fsp}task {label}')
+            lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
+            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
+            lines.append('')
+
+        lines.append(f'{sp}endfamily')
+
+        return lines
+
+    def _resource_edits(self, res: Dict, indent_str: str, *,
+                        skip_walltime: bool = False) -> List[str]:
+        """Emit per-task resource edit lines from a resource dict."""
+        lines = []
+
+        walltime = res.get('walltime', '00:30:00')
+        nodes = res.get('nodes', 1)
+        ppn = res.get('ppn', 1)
+        threads = res.get('threads', 1)
+        partition = res.get('partition')
+        native = res.get('native', '')
+        is_exclusive = native and '--exclusive' in str(native)
+
+        if not skip_walltime:
+            lines.append(f"{indent_str}edit WALLTIME '{walltime}'")
+        if nodes > 1:
+            lines.append(f"{indent_str}edit NODES '{nodes}'")
+        if ppn > 1:
+            lines.append(f"{indent_str}edit NTASKS '{ppn}'")
+        if threads > 1:
+            lines.append(f"{indent_str}edit CPUS_PER_TASK '{threads}'")
+        if partition and partition != self._base.get('PARTITION_BATCH'):
+            lines.append(f"{indent_str}edit QUEUE '{partition}'")
+        if is_exclusive:
+            lines.append(f"{indent_str}edit EXCLUSIVE 'YES'")
+
+        return lines
+
+    # ── ecf_scripts management ────────────────────────────────────────
+
     def _create_ecf_scripts(self) -> None:
         """Populate the ECF_FILES directory under EXPDIR with copies.
 
@@ -210,8 +287,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         copy of the parent task's ``.ecf`` (e.g. ``atmos_prod.ecf``).
 
         Also writes ``ecf_scripts.manifest`` — a two-column TSV
-        (child_name <TAB> source_name) consumed by the standalone
-        ``sync_ecf_scripts.sh`` refresh script.
+        consumed by ``sync_ecf_scripts.sh``.
         """
         scripts_dir = self._ecf_scripts_dir
         src_dir = self._ecf_src_dir
@@ -246,7 +322,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             unique = sorted(set(skipped))
             logger.warning(f'Missing source .ecf (skipped): {", ".join(unique)}')
 
-    # ── Private helpers ───────────────────────────────────────────────
+    # ── Suite-level variables ─────────────────────────────────────────
 
     def _suite_variables(self, indent: int = 2) -> List[str]:
         """Emit suite-level edit variables."""
@@ -254,12 +330,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         base = self._base
         lines = []
 
-        # ecFlow server connection (placeholders — overwritten by
-        # bootstrap or the ecflow_client environment)
-        # ECF_HOME is the base for .job file generation.  ecFlow appends
-        # %ECF_NAME% (/<suite>/gfs/<cycle>/<task>) under ECF_HOME.
-        # ECF_OUT redirects job output so it lands directly under
-        # ROTDIR/logs/gfs/<cycle>/ without a redundant suite-name level.
         rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
                                                   self.pslot))
         ecf_log_dir = os.path.join(rotdir, 'logs')
@@ -267,9 +337,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
 
-        # ECF_FILES points to the script directory under EXPDIR.
-        # _create_ecf_scripts() copies the .ecf files there after
-        # the .def is written.
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get('ECF_INCLUDE',
                                      os.path.join(self.HOMEglobal, 'dev', 'ecflow',
@@ -283,19 +350,15 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
-        # Use %TASK% for flat output — ecFlow's %ECF_NAME% includes the
-        # full node hierarchy which creates unwanted subdirectories.
         lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
-        # Slurm job submission commands
         lines.append(f"{sp}# Slurm job submission commands")
         lines.append(f"{sp}edit ECF_JOB_CMD  'sbatch %ECF_JOB%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
         lines.append(f"{sp}")
 
-        # Experiment identity
         lines.append(f"{sp}# Experiment variables")
         lines.append(f"{sp}edit ENVIR    '{base.get('envir', 'test')}'")
         lines.append(f"{sp}edit NET      '{base['NET']}'")
@@ -311,13 +374,11 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit FHMAX_GFS '{base.get('FHMAX_GFS', 120)}'")
         lines.append(f"{sp}")
 
-        # Date/time (from SDATE_GFS)
         sdate = base['SDATE_GFS']
         lines.append(f"{sp}edit PDY      '{sdate.strftime('%Y%m%d')}'")
         lines.append(f"{sp}edit CYC      '{sdate.strftime('%H')}'")
         lines.append(f"{sp}")
 
-        # Paths consumed by J-Jobs
         lines.append(f"{sp}# Paths consumed by J-Jobs")
         lines.append(f"{sp}edit HOMEglobal '{self.HOMEglobal}'")
         lines.append(f"{sp}edit EXPDIR     '{self.expdir}'")
@@ -326,7 +387,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit DATAROOT   '{dataroot}'")
         lines.append(f"{sp}")
 
-        # Slurm resource defaults (overridden per-task)
         lines.append(f"{sp}# Slurm resource defaults (overridden per-task)")
         lines.append(f"{sp}edit WALLTIME '00:30:00'")
         lines.append(f"{sp}edit NODES    '1'")
@@ -336,289 +396,11 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         return lines
 
-    def _get_forecast_hours(self, task_name: str) -> Optional[List[int]]:
-        """
-        Compute the list of forecast hours for a product task.
-
-        Uses the same logic as ``Tasks._get_forecast_hours``: high-frequency
-        output up to FHMAX_HF_GFS at FHOUT_HF_GFS intervals, then standard
-        output at FHOUT_GFS intervals to FHMAX_GFS.
-
-        Returns None for non-product tasks.
-        """
-        if task_name not in self.PRODUCT_TASKS:
-            return None
-
-        prod_info = self.PRODUCT_TASKS[task_name]
-        config_name = prod_info['config']
-        component = prod_info['component']
-
-        if config_name not in self._configs:
-            return None
-
-        config = self._configs[config_name].copy()
-
-        # Ocean/ice have no high-frequency output
-        if component in ('ocean', 'ice'):
-            config['FHMAX_HF_GFS'] = 0
-
-        if component == 'ocean':
-            config['FHOUT_HF_GFS'] = config.get('FHOUT_OCN_GFS', 6)
-            config['FHOUT_GFS'] = config.get('FHOUT_OCN_GFS', 6)
-        elif component == 'ice':
-            config['FHOUT_HF_GFS'] = config.get('FHOUT_ICE_GFS', 6)
-            config['FHOUT_GFS'] = config.get('FHOUT_ICE_GFS', 6)
-        elif component == 'wave':
-            config['FHMAX_HF_GFS'] = config.get('FHMAX_HF_WAV', 120)
-            config['FHOUT_HF_GFS'] = config.get('FHOUT_HF_WAV', 1)
-            config['FHOUT_GFS'] = config.get('FHOUT_WAV_GFS', 3)
-
-        fhmin = config.get('FHMIN', 0)
-        fhmax = config.get('FHMAX_GFS', 120)
-        fhout = config.get('FHOUT_GFS', 3)
-        fhout_hf = config.get('FHOUT_HF_GFS', 1)
-        fhmax_hf = config.get('FHMAX_HF_GFS', 0)
-
-        if fhmax_hf > 0 and fhout_hf > 0:
-            fhrs_hf = list(range(fhmin, min(fhmax_hf, fhmax) + fhout_hf, fhout_hf))
-            last_hf = fhrs_hf[-1]
-            fhrs = fhrs_hf + list(range(last_hf + fhout, fhmax + fhout, fhout))
-        else:
-            fhrs = list(range(fhmin, fhmax + fhout, fhout))
-
-        # Ocean/ice do not produce output at fhr 0
-        if component in ('ocean', 'ice') and 0 in fhrs:
-            fhrs.remove(0)
-
-        return fhrs
-
-    def _get_resource_for_task(self, task_name: str) -> Dict:
-        """
-        Extract task resources directly from the already-parsed AppConfig.
-
-        Reads walltime, ntasks, threads, etc. from
-        ``app_config.configs[run][config_name]`` which was populated by
-        ``Configuration.parse_config`` during AppConfig initialization.
-        No additional subprocess calls are made.
-        """
-        import math
-
-        resource_step = self.RESOURCE_STEP_MAP.get(task_name, task_name)
-        base = self._base
-
-        try:
-            task_config = self._configs[resource_step]
-        except KeyError:
-            logger.warning(f'No config for {task_name} '
-                           f'(step={resource_step}). Using defaults.')
-            return {
-                'walltime': '00:30:00',
-                'nodes': 1,
-                'ntasks': 1,
-                'ppn': 1,
-                'threads': 1,
-                'memory': None,
-                'partition': base.get('PARTITION_BATCH', 'batch'),
-                'native': None,
-            }
-
-        walltime = task_config.get('walltime', '00:30:00')
-        ntasks = int(task_config.get('ntasks', 1))
-        ppn = int(task_config.get('tasks_per_node', 1))
-        nodes = math.ceil(ntasks / max(ppn, 1))
-        threads = int(task_config.get('threads_per_task', 1))
-        memory = task_config.get('memory', None)
-        is_exclusive = task_config.get('is_exclusive', False)
-
-        # Determine partition based on task type
-        service_task = task_name in self.SERVICE_TASKS
-        if service_task:
-            partition = base.get('PARTITION_SERVICE',
-                                 base.get('PARTITION_BATCH', 'batch'))
-        else:
-            partition = base.get('PARTITION_BATCH', 'batch')
-
-        native = '--exclusive' if is_exclusive else '--export=NONE'
-
-        return {
-            'walltime': walltime,
-            'nodes': nodes,
-            'ntasks': ntasks,
-            'ppn': ppn,
-            'threads': threads,
-            'memory': memory,
-            'partition': partition,
-            'native': native,
-        }
-
-    def _get_trigger(self, task_name: str) -> Optional[str]:
-        """
-        Return the ecFlow trigger expression for *task_name*, or None.
-
-        Subclasses **must** override this method to supply the dependency
-        chain for their specific task set.  The base implementation
-        returns None (no triggers).
-
-        Parameters
-        ----------
-        task_name : str
-            Logical task name from ``get_task_names()``.
-
-        Returns
-        -------
-        str or None
-            An ecFlow trigger expression, or None if the task has no
-            dependencies.
-        """
-        return None
-
-    def _emit_task(self, task_name: str, indent: int
-                   ) -> Tuple[List[str], str]:
-        """
-        Emit a task block (or a family of per-group subtasks for product jobs).
-
-        Product tasks (atmos_prod, ocean_prod, etc.) are emitted as an
-        ecFlow family containing one child task per forecast-hour group,
-        each with its own FHR_LIST and scaled walltime.  Non-product
-        tasks are emitted as a single task node.
-
-        Returns (lines, task_name).
-        """
-        fhrs = self._get_forecast_hours(task_name)
-
-        if fhrs is not None:
-            return self._emit_product_family(task_name, fhrs, indent)
-
-        return self._emit_simple_task(task_name, indent)
-
-    def _emit_simple_task(self, task_name: str, indent: int
-                          ) -> Tuple[List[str], str]:
-        """Emit a single non-product task node."""
-        sp = ' ' * indent
-        tsp = ' ' * (indent + 2)
-        lines = []
-
-        res = self._get_resource_for_task(task_name)
-        trigger = self._get_trigger(task_name)
-
-        # Register in the copy map: task_name.ecf → task_name.ecf
-        self._symlink_map[task_name] = task_name
-
-        lines.append(f'{sp}task {task_name}')
-        lines.append(f"{tsp}edit TASK '{task_name}'")
-
-        walltime = res.get('walltime', '00:30:00')
-        nodes = res.get('nodes', 1)
-        ntasks = res.get('ntasks', 1)
-        ppn = res.get('ppn', ntasks)
-        threads = res.get('threads', 1)
-        partition = res.get('partition')
-        native = res.get('native', '')
-        is_exclusive = native and '--exclusive' in str(native)
-
-        lines.append(f"{tsp}edit WALLTIME '{walltime}'")
-        # NODES and NTASKS are always emitted for non-default values.
-        # NTASKS maps to --ntasks-per-node in slurm.h (per-node count).
-        if nodes > 1:
-            lines.append(f"{tsp}edit NODES '{nodes}'")
-        if ppn > 1:
-            lines.append(f"{tsp}edit NTASKS '{ppn}'")
-        if threads > 1:
-            lines.append(f"{tsp}edit CPUS_PER_TASK '{threads}'")
-        if partition and partition != self._base.get('PARTITION_BATCH'):
-            lines.append(f"{tsp}edit QUEUE '{partition}'")
-        if is_exclusive:
-            lines.append(f"{tsp}edit EXCLUSIVE 'YES'")
-
-        if trigger:
-            lines.append(f'{tsp}trigger {trigger}')
-
-        return lines, task_name
-
-    def _emit_product_family(self, task_name: str, fhrs: List[int],
-                             indent: int) -> Tuple[List[str], str]:
-        """Emit a product task as a family of per-group subtasks.
-
-        Each child task processes a subset of forecast hours.  The family
-        completes when all children complete, giving ecFlow UI visibility
-        into per-group progress.
-        """
-        sp = ' ' * indent
-        fsp = ' ' * (indent + 2)   # family-level indent
-        tsp = ' ' * (indent + 4)   # task-level indent
-        lines = []
-
-        res = self._get_resource_for_task(task_name)
-        trigger = self._get_trigger(task_name)
-
-        prod_info = self.PRODUCT_TASKS[task_name]
-        max_tasks = self._configs.get(
-            prod_info['config'], {}).get('MAX_TASKS', 25)
-        ngroups = min(max_tasks, len(fhrs))
-        groups = self._group_fhrs(fhrs, ngroups)
-
-        base_walltime = res.get('walltime', '00:15:00')
-        nodes = res.get('nodes', 1)
-        ntasks = res.get('ntasks', 1)
-        threads = res.get('threads', 1)
-        partition = res.get('partition')
-        native = res.get('native', '')
-        is_exclusive = native and '--exclusive' in str(native)
-
-        # Family wrapping all forecast-hour groups
-        node_name = task_name
-        lines.append(f'{sp}family {node_name}')
-        lines.append(f"{fsp}edit TASK '{task_name}'")
-        lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
-
-        if trigger:
-            lines.append(f'{fsp}trigger {trigger}')
-
-        # Shared resource defaults at family level
-        if ntasks > 1:
-            lines.append(f"{fsp}edit NTASKS '{ntasks}'")
-        if threads > 1:
-            lines.append(f"{fsp}edit CPUS_PER_TASK '{threads}'")
-        if partition and partition != self._base.get('PARTITION_BATCH'):
-            lines.append(f"{fsp}edit QUEUE '{partition}'")
-        if is_exclusive:
-            lines.append(f"{fsp}edit EXCLUSIVE 'YES'")
-        if nodes > 1:
-            lines.append(f"{fsp}edit NODES '{nodes}'")
-
-        lines.append('')
-
-        # One child task per forecast-hour group.
-        # Each child is registered in the copy map so _create_ecf_scripts
-        # copies parent_task.ecf as child_label.ecf in the ECF_FILES dir.
-        for i, grp in enumerate(groups):
-            if len(grp) == 1:
-                label = f'f{grp[0]:03d}'
-            else:
-                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
-
-            self._symlink_map[label] = task_name
-
-            fhr_list_str = ','.join(str(f) for f in grp)
-            grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
-
-            lines.append(f'{fsp}task {label}')
-            lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
-            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
-            lines.append('')
-
-        lines.append(f'{sp}endfamily')
-
-        return lines, task_name
+    # ── Utility ───────────────────────────────────────────────────────
 
     @staticmethod
     def _group_fhrs(fhrs: List[int], ngroups: int) -> List[List[int]]:
-        """
-        Split forecast hours into *ngroups* roughly equal groups.
-
-        Simplified version of Tasks.get_job_groups() without
-        forecast-segment breakpoint handling.
-        """
+        """Split forecast hours into *ngroups* roughly equal groups."""
         if ngroups >= len(fhrs):
             return [[f] for f in fhrs]
 
