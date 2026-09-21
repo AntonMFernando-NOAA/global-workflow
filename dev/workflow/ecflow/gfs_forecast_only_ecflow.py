@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-GFS forecast-only ecFlow suite generator.
+GFS forecast-only ecFlow suite generator (generic base class).
 
 Generates a complete ``.def`` file from the same ``AppConfig`` and task/resource
 data that the Rocoto XML generator uses.  The output is self-contained: every
@@ -9,17 +9,35 @@ ecFlow edit variable (ECF_HOME, ACCOUNT, QUEUE, per-task WALLTIME, etc.) is
 baked into the definition so that ``ecflow_client --load`` works with **no**
 subsequent ``--alter`` overrides.
 
-The dependency chain mirrors ``rocoto/gfs_tasks.py`` for forecast-only mode::
+This module provides the **generic** machinery for any GFS forecast-only
+ecFlow suite.  Case-specific details — the J-Job mapping, resource-step
+overrides, service-task classification, product-task definitions, and
+dependency triggers — are supplied by subclasses (e.g.
+``C48ATMEcFlowSuite``).
 
-    [fetch →] stage_ic [→ waveinit/aerosol_init] → fcst →
-        atmos_prod → {tracker, genesis, genesis_fsu, metp, postsnd, ...} →
-        [ocean_prod, ice_prod, wave*] → arch_vrfy → cleanup
+Subclasses must populate the following class attributes:
+
+    JJOB_MAP : Dict[str, str]
+        Logical task name → J-Job basename under ``dev/jobs/``.
+    RESOURCE_STEP_MAP : Dict[str, str]
+        Task names whose config.resources step name differs from the
+        logical task name.
+    SERVICE_TASKS : Set[str]
+        Tasks that run on the service partition.
+    PRODUCT_TASKS : Dict[str, Dict[str, str]]
+        Tasks that process forecast hours in groups.  Each entry maps
+        ``task_name → {'config': <config_name>, 'component': <component>}``.
+
+And must override:
+
+    _get_trigger(task_name) → Optional[str]
+        Return the ecFlow trigger expression for a task.
 """
 
 import os
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from ecflow.ecflow_suite import EcFlowSuite
 from applications.applications import AppConfig
@@ -28,73 +46,10 @@ from wxflow import timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
 
-# ── Task name → J-Job script mapping ─────────────────────────────────────
-# Maps the logical task name (from get_task_names()) to the J-Job basename
-# under dev/jobs/.  Most follow the pattern JGLOBAL_<UPPER> or
-# JGFS_ATMOS_<UPPER>.
-_JJOB_MAP = {
-    'fetch': 'JGLOBAL_FETCH',
-    'stage_ic': 'JGLOBAL_STAGE_IC',
-    'aerosol_init': 'JGLOBAL_AEROSOL_INIT',
-    'waveinit': 'JGLOBAL_WAVE_INIT',
-    'fcst': 'JGLOBAL_FCST',
-    'atmupp': 'JGLOBAL_ATMOS_UPP',
-    'goesupp': 'JGLOBAL_ATMOS_UPP',
-    'atmos_prod': 'JGLOBAL_ATMOS_PRODUCTS',
-    'ocean_prod': 'JGLOBAL_OCEANICE_PRODUCTS',
-    'ice_prod': 'JGLOBAL_OCEANICE_PRODUCTS',
-    'tracker': 'JGFS_ATMOS_CYCLONE_TRACKER',
-    'genesis': 'JGFS_ATMOS_CYCLONE_GENESIS',
-    'genesis_fsu': 'JGFS_ATMOS_CYCLONE_GENESIS_FSU',
-    'metp': 'JGFS_ATMOS_VERIFICATION',
-    'postsnd': 'JGFS_ATMOS_POSTSND',
-    'gempak': 'JGFS_ATMOS_GEMPAK',
-    'gempakmeta': 'JGFS_ATMOS_GEMPAK_META',
-    'awips_20km_1p0deg': 'JGFS_ATMOS_AWIPS_20KM_1P0',
-    'fbwind': 'JGFS_ATMOS_FBWIND',
-    'wavepostgridded': 'JGLOBAL_WAVE_POST_GRIDDED',
-    'wavepostpnt': 'JGLOBAL_WAVE_POST_PNT',
-    'wavepostbndpnt': 'JGLOBAL_WAVE_POST_BNDPNT',
-    'wavepostbndpntbll': 'JGLOBAL_WAVE_POST_BNDPNTBLL',
-    'wavegempak': 'JGFS_WAVE_GEMPAK',
-    'waveawipsbulls': 'JGFS_WAVE_AWIPS_BULLS',
-    'waveawipsgridded': 'JGFS_WAVE_AWIPS_GRIDDED',
-    'arch_tars': 'JGLOBAL_ARCHIVE_TARS',
-    'globus_arch': 'JGLOBAL_GLOBUS_ARCHIVE',
-    'arch_vrfy': 'JGLOBAL_ARCHIVE_VRFY',
-    'cleanup': 'JGLOBAL_CLEANUP',
-}
-
-# Resource config name for tasks where the config.resources step name
-# differs from the task name used in get_task_names().
-_RESOURCE_STEP_MAP = {
-    'atmupp': 'upp',
-    'goesupp': 'upp',
-    'atmos_prod': 'atmos_products',
-    'ocean_prod': 'oceanice_products',
-    'ice_prod': 'oceanice_products',
-    'awips_20km_1p0deg': 'awips',
-    'arch_vrfy': 'arch_vrfy',
-    'arch_tars': 'arch_tars',
-    'globus_arch': 'arch_tars',
-}
-
-# Tasks classified as "service" by the Rocoto Tasks class — these run on
-# the service partition rather than compute.
-_SERVICE_TASKS = {'arch_vrfy', 'stage_ic'}
-
-# Product tasks that process forecast hours in groups.
-_PRODUCT_TASKS = {
-    'atmos_prod': {'config': 'atmos_products', 'component': 'atmos'},
-    'ocean_prod': {'config': 'oceanice_products', 'component': 'ocean'},
-    'ice_prod': {'config': 'oceanice_products', 'component': 'ice'},
-    'wavepostgridded': {'config': 'wavepostgridded', 'component': 'wave'},
-}
-
 
 class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
     """
-    ecFlow suite generator for GFS forecast-only workflows.
+    Generic ecFlow suite generator for GFS forecast-only workflows.
 
     Produces a ``.def`` file that mirrors the Rocoto XML for the same
     ``AppConfig``.  All variables are baked into the definition so the
@@ -102,6 +57,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         ecflow_client --load=<path>.def
         ecflow_client --begin=<suite_name>
+
+    Subclasses must set the class attributes ``JJOB_MAP``,
+    ``RESOURCE_STEP_MAP``, ``SERVICE_TASKS``, ``PRODUCT_TASKS`` and
+    override ``_get_trigger()``.
 
     Parameters
     ----------
@@ -111,6 +70,25 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         Dictionary containing ecFlow-specific configuration
         (currently only ``verbosity``).
     """
+
+    # ── Subclass-provided case data (empty defaults) ──────────────────
+    #
+    # Subclasses populate these with the task mappings, resource
+    # overrides, and product-task definitions specific to their case.
+
+    JJOB_MAP: Dict[str, str] = {}
+    """Logical task name → J-Job script basename under dev/jobs/."""
+
+    RESOURCE_STEP_MAP: Dict[str, str] = {}
+    """Task names where the config.resources step name differs from the
+    logical task name used in get_task_names()."""
+
+    SERVICE_TASKS: Set[str] = set()
+    """Tasks that run on the service partition rather than compute."""
+
+    PRODUCT_TASKS: Dict[str, Dict[str, str]] = {}
+    """Product tasks that process forecast hours in groups.
+    Each entry: ``task_name → {'config': str, 'component': str}``."""
 
     def __init__(self, app_config: AppConfig, ecflow_config: Dict) -> None:
         super().__init__(app_config, ecflow_config)
@@ -368,10 +346,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         Returns None for non-product tasks.
         """
-        if task_name not in _PRODUCT_TASKS:
+        if task_name not in self.PRODUCT_TASKS:
             return None
 
-        prod_info = _PRODUCT_TASKS[task_name]
+        prod_info = self.PRODUCT_TASKS[task_name]
         config_name = prod_info['config']
         component = prod_info['component']
 
@@ -425,7 +403,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         import math
 
-        resource_step = _RESOURCE_STEP_MAP.get(task_name, task_name)
+        resource_step = self.RESOURCE_STEP_MAP.get(task_name, task_name)
         base = self._base
 
         try:
@@ -453,7 +431,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         is_exclusive = task_config.get('is_exclusive', False)
 
         # Determine partition based on task type
-        service_task = task_name in _SERVICE_TASKS
+        service_task = task_name in self.SERVICE_TASKS
         if service_task:
             partition = base.get('PARTITION_SERVICE',
                                  base.get('PARTITION_BATCH', 'batch'))
@@ -477,103 +455,21 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         Return the ecFlow trigger expression for *task_name*, or None.
 
-        Mirrors the dependency logic from ``rocoto/gfs_tasks.py`` for
-        forecast-only mode.
+        Subclasses **must** override this method to supply the dependency
+        chain for their specific task set.  The base implementation
+        returns None (no triggers).
+
+        Parameters
+        ----------
+        task_name : str
+            Logical task name from ``get_task_names()``.
+
+        Returns
+        -------
+        str or None
+            An ecFlow trigger expression, or None if the task has no
+            dependencies.
         """
-        tasks = self._task_names
-
-        def has(name):
-            return name in tasks
-
-        if task_name == 'stage_ic':
-            if has('fetch'):
-                return 'fetch == complete'
-            return None
-
-        if task_name == 'aerosol_init':
-            return None
-
-        if task_name == 'waveinit':
-            return None
-
-        if task_name == 'fcst':
-            deps = ['stage_ic == complete']
-            if has('waveinit'):
-                deps.append('waveinit == complete')
-            if has('aerosol_init'):
-                deps.append('aerosol_init == complete')
-            return ' and '.join(deps)
-
-        if task_name == 'atmupp':
-            return 'fcst == complete'
-
-        if task_name == 'goesupp':
-            return 'fcst == complete'
-
-        if task_name == 'atmos_prod':
-            return 'fcst == complete'
-
-        if task_name == 'ocean_prod':
-            return 'fcst == complete'
-
-        if task_name == 'ice_prod':
-            return 'fcst == complete'
-
-        if task_name in ('tracker', 'genesis', 'genesis_fsu', 'metp'):
-            return 'atmos_prod == complete'
-
-        if task_name == 'postsnd':
-            return 'atmos_prod == complete'
-
-        if task_name in ('gempak', 'gempakmeta'):
-            return 'atmos_prod == complete'
-
-        if task_name in ('awips_20km_1p0deg', 'fbwind'):
-            return 'atmos_prod == complete'
-
-        if task_name in ('wavepostgridded', 'wavepostpnt',
-                         'wavepostbndpnt', 'wavepostbndpntbll'):
-            return 'fcst == complete'
-
-        if task_name in ('wavegempak',):
-            return 'wavepostgridded == complete'
-
-        if task_name in ('waveawipsbulls', 'waveawipsgridded'):
-            return 'wavepostgridded == complete'
-
-        if task_name in ('arch_tars', 'globus_arch'):
-            return 'arch_vrfy == complete'
-
-        if task_name == 'arch_vrfy':
-            deps = ['atmos_prod == complete']
-            if has('tracker'):
-                deps.append('tracker == complete')
-            if has('genesis'):
-                deps.append('genesis == complete')
-            if has('genesis_fsu'):
-                deps.append('genesis_fsu == complete')
-            if has('ocean_prod'):
-                deps.append('ocean_prod == complete')
-            if has('ice_prod'):
-                deps.append('ice_prod == complete')
-            if has('wavepostgridded'):
-                deps.append('wavepostgridded == complete')
-            if has('wavepostpnt'):
-                deps.append('wavepostpnt == complete')
-            if has('wavepostbndpnt'):
-                deps.append('wavepostbndpnt == complete')
-            if has('wavepostbndpntbll'):
-                deps.append('wavepostbndpntbll == complete')
-            return ' and '.join(deps)
-
-        if task_name == 'cleanup':
-            deps = ['arch_vrfy == complete']
-            if has('arch_tars'):
-                deps.append('arch_tars == complete')
-            if has('globus_arch'):
-                deps.append('globus_arch == complete')
-            return ' and '.join(deps)
-
         return None
 
     def _emit_task(self, task_name: str, indent: int
@@ -655,7 +551,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         res = self._get_resource_for_task(task_name)
         trigger = self._get_trigger(task_name)
 
-        prod_info = _PRODUCT_TASKS[task_name]
+        prod_info = self.PRODUCT_TASKS[task_name]
         max_tasks = self._configs.get(
             prod_info['config'], {}).get('MAX_TASKS', 25)
         ngroups = min(max_tasks, len(fhrs))
