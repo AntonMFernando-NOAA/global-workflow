@@ -99,6 +99,26 @@ def parse_args(default_yaml: Path = None) -> argparse.Namespace:
         default=None,
         help="ecFlow suite name (default: pslot from the YAML).",
     )
+    parser.add_argument(
+        "--expdir",
+        type=Path,
+        default=None,
+        help="Override experiment directory base path (the YAML's "
+             "expdir value). Sets RUNTESTS so that "
+             "EXPDIR = <expdir>/<pslot>.",
+    )
+    parser.add_argument(
+        "--comroot",
+        type=Path,
+        default=None,
+        help="Override COMROOT path. Sets RUNTESTS so that "
+             "COMROOT = <comroot>.",
+    )
+    parser.add_argument(
+        "--pslot",
+        default=None,
+        help="Override experiment name (default: <yaml_stem>_ecflow).",
+    )
     return parser.parse_args()
 
 
@@ -257,6 +277,21 @@ def run(default_yaml: Path = None) -> None:
     if not yaml_path.is_file():
         print(f"[ERROR] Case YAML not found: {yaml_path}")
         sys.exit(1)
+
+    # CLI overrides take precedence over environment and YAML defaults.
+    # Set them in os.environ so load_case_yaml's Jinja2 rendering picks
+    # them up via the {{ 'VAR' | getenv }} filters in the case YAML.
+    if args.pslot:
+        os.environ['pslot'] = args.pslot
+    if args.comroot or args.expdir:
+        # Both comroot and expdir derive from RUNTESTS in the YAML.
+        # When the user provides --comroot, RUNTESTS = comroot.parent.
+        # When --expdir is given, RUNTESTS = expdir (since YAML does
+        # RUNTESTS/EXPDIR/<pslot>, and --expdir replaces the base).
+        if args.comroot:
+            os.environ['RUNTESTS'] = str(args.comroot.parent)
+        elif args.expdir:
+            os.environ['RUNTESTS'] = str(args.expdir)
 
     testconf = load_case_yaml(yaml_path)
     exp = testconf.experiment
