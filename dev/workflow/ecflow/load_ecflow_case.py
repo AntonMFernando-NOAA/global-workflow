@@ -119,6 +119,13 @@ def parse_args(default_yaml: Path = None) -> argparse.Namespace:
         default=None,
         help="Override experiment name (default: <yaml_stem>_ecflow).",
     )
+    parser.add_argument(
+        "--stmp",
+        type=Path,
+        default=None,
+        help="Override STMP (scratch/tmp) path used to build "
+             "DATAROOT = <stmp>/RUNDIRS/<pslot>.",
+    )
     return parser.parse_args()
 
 
@@ -292,6 +299,8 @@ def run(default_yaml: Path = None) -> None:
             os.environ['RUNTESTS'] = str(args.comroot.parent)
         elif args.expdir:
             os.environ['RUNTESTS'] = str(args.expdir)
+    if args.stmp:
+        os.environ['STMP'] = str(args.stmp)
 
     testconf = load_case_yaml(yaml_path)
     exp = testconf.experiment
