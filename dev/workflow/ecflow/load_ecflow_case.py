@@ -50,8 +50,16 @@ REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "HOMEglobal")
 def ecflow_client(*args: str) -> subprocess.CompletedProcess:
     """Run ecflow_client with the given arguments."""
     cmd = ["ecflow_client", *args]
-    return subprocess.run(cmd, check=True, capture_output=True, text=True,
-                          timeout=30)
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True,
+                              timeout=30)
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] ecflow_client failed: {' '.join(cmd)}")
+        if e.stdout:
+            print(f"  stdout: {e.stdout.strip()}")
+        if e.stderr:
+            print(f"  stderr: {e.stderr.strip()}")
+        raise
 
 
 def ecflow_client_quiet(*args: str) -> bool:
