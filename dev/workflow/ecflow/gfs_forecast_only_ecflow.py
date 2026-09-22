@@ -102,7 +102,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
                                         'scripts')))
 
         # Collect copies to create: {dest_name: source_ecf_name}
-        self._symlink_map: Dict[str, str] = {}
+        self._copy_map: Dict[str, str] = {}
 
         lines: List[str] = []
         lines.append(f'# Auto-generated ecFlow suite definition for {suite_name}')
@@ -184,7 +184,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         trigger = task_dict['trigger']
 
         # Register in the copy map
-        self._symlink_map[task_name] = task_name
+        self._copy_map[task_name] = task_name
 
         lines.append(f'{sp}task {task_name}')
         lines.append(f"{tsp}edit TASK '{task_name}'")
@@ -234,7 +234,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._symlink_map[label] = task_name
+            self._copy_map[label] = task_name
 
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
@@ -301,11 +301,11 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         import shutil
         skipped = []
-        for link_name, target_name in self._symlink_map.items():
-            dest = scripts_dir / f'{link_name}.ecf'
-            src = src_dir / f'{target_name}.ecf'
+        for dest_name, src_name in self._copy_map.items():
+            dest = scripts_dir / f'{dest_name}.ecf'
+            src = src_dir / f'{src_name}.ecf'
             if not src.is_file():
-                skipped.append(f'{target_name}.ecf')
+                skipped.append(f'{src_name}.ecf')
                 continue
             shutil.copy2(str(src), str(dest))
 
@@ -313,10 +313,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         manifest = scripts_dir / 'ecf_scripts.manifest'
         with open(manifest, 'w') as fh:
             fh.write(f'# ECF_SRC_DIR={self._ecf_src_dir}\n')
-            for link_name, target_name in sorted(self._symlink_map.items()):
-                fh.write(f'{link_name}\t{target_name}\n')
+            for dest_name, src_name in sorted(self._copy_map.items()):
+                fh.write(f'{dest_name}\t{src_name}\n')
 
-        copied = len(self._symlink_map) - len(skipped)
+        copied = len(self._copy_map) - len(skipped)
         logger.info(f'Copied {copied} .ecf files to {scripts_dir}')
         if skipped:
             unique = sorted(set(skipped))
