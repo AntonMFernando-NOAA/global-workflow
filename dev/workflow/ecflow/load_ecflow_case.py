@@ -252,7 +252,23 @@ def load_suite(suite_name: str, def_file: Path) -> None:
         if answer not in ('y', 'yes'):
             print("  Aborting load. Existing suite left intact.")
             sys.exit(0)
-        ecflow_client("--delete", f"/{suite_name}")
+        # Suspend first to stop new task submissions, then delete.
+        # 120s timeout — large suites with active tasks need time.
+        print(f"  Suspending /{suite_name}...")
+        ecflow_client_quiet("--suspend", f"/{suite_name}")
+        print(f"  Deleting /{suite_name}...")
+        cmd = ["ecflow_client", "--delete", f"/{suite_name}"]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True,
+                           text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            print(f"[WARN] Delete timed out. Try manually:")
+            print(f"    ecflow_client --delete /{suite_name}")
+            sys.exit(1)
+        except subprocess.CalledProcessError as e:
+            print(f"[WARN] Delete failed: {e.stderr.strip() if e.stderr else 'unknown error'}")
+            print(f"  Try manually: ecflow_client --delete /{suite_name}")
+            sys.exit(1)
         print(f"  Deleted /{suite_name}.")
     ecflow_client(f"--load={def_file}")
 
