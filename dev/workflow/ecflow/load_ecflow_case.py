@@ -44,7 +44,7 @@ import setup_workflow  # noqa: E402
 from hosts import Host  # noqa: E402
 from wxflow import AttrDict, parse_j2yaml  # noqa: E402
 
-REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "HOMEglobal")
+REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "ECF_HOME", "HOMEglobal")
 
 
 def ecflow_client(*args: str) -> subprocess.CompletedProcess:
@@ -142,7 +142,23 @@ def validate_environment() -> None:
     missing = [v for v in REQUIRED_ENV if not os.environ.get(v)]
     if missing:
         print(f"[ERROR] Missing environment variables: {', '.join(missing)}")
-        print("  Set ECF_HOST, ECF_PORT, and HOMEglobal before running.")
+        print()
+        print("  Add these to your environment before running:")
+        print()
+        print("    unset ECF_HOSTFILE")
+        print("    module load ecflow")
+        print("    export ECF_HOST=<ecflow_server_host>")
+        print("    export ECF_PORT=<ecflow_server_port>")
+        print("    export ECF_HOME=<path_for_ecflow_job_files>")
+        print("    export HOMEglobal=<path_to_global_workflow>")
+        print()
+        print("  Example (Ursa):")
+        print("    unset ECF_HOSTFILE")
+        print("    module load ecflow")
+        print("    export ECF_HOST=uecflow01")
+        print("    export ECF_PORT=23385")
+        print("    export ECF_HOME=/scratch3/NCEPDEV/global/$USER/ecflow")
+        print("    export HOMEglobal=/scratch3/NCEPDEV/global/$USER/global-workflow")
         sys.exit(1)
 
 
@@ -228,8 +244,16 @@ def generate_ecflow_def(expdir: Path) -> Path:
 
 
 def load_suite(suite_name: str, def_file: Path) -> None:
-    """Delete any existing suite and load the .def file."""
-    ecflow_client_quiet("--delete", f"/{suite_name}")
+    """Prompt to delete any existing suite, then load the .def file."""
+    # Check if the suite already exists on the server
+    if ecflow_client_quiet("--get", f"/{suite_name}"):
+        print(f"  Suite '/{suite_name}' already exists on the server.")
+        answer = input("  Delete and replace it? [y/N] ").strip().lower()
+        if answer not in ('y', 'yes'):
+            print("  Aborting load. Existing suite left intact.")
+            sys.exit(0)
+        ecflow_client("--delete", f"/{suite_name}")
+        print(f"  Deleted /{suite_name}.")
     ecflow_client(f"--load={def_file}")
 
 
