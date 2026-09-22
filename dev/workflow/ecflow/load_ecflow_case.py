@@ -252,22 +252,21 @@ def load_suite(suite_name: str, def_file: Path) -> None:
         if answer not in ('y', 'yes'):
             print("  Aborting load. Existing suite left intact.")
             sys.exit(0)
-        # Suspend first to stop new task submissions, then delete.
-        # 120s timeout — large suites with active tasks need time.
-        print(f"  Suspending /{suite_name}...")
+        print(f"  Stopping /{suite_name}...")
         ecflow_client_quiet("--suspend", f"/{suite_name}")
+        ecflow_client_quiet("--kill", f"/{suite_name}")
+        import time
+        time.sleep(5)
         print(f"  Deleting /{suite_name}...")
-        cmd = ["ecflow_client", "--delete", f"/{suite_name}"]
+        cmd = ["ecflow_client", "--delete=force", "yes",
+               f"/{suite_name}"]
         try:
             subprocess.run(cmd, check=True, capture_output=True,
-                           text=True, timeout=120)
-        except subprocess.TimeoutExpired:
-            print(f"[WARN] Delete timed out. Try manually:")
-            print(f"    ecflow_client --delete /{suite_name}")
-            sys.exit(1)
-        except subprocess.CalledProcessError as e:
-            print(f"[WARN] Delete failed: {e.stderr.strip() if e.stderr else 'unknown error'}")
-            print(f"  Try manually: ecflow_client --delete /{suite_name}")
+                           text=True, timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            msg = getattr(e, 'stderr', '') or ''
+            print(f"[WARN] Delete failed: {msg.strip() if msg else 'timeout'}")
+            print(f"  Try manually: ecflow_client --delete=force yes /{suite_name}")
             sys.exit(1)
         print(f"  Deleted /{suite_name}.")
     ecflow_client(f"--load={def_file}")
