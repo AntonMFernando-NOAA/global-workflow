@@ -246,20 +246,26 @@ class GEFSEcFlowTasks(EcFlowTasks):
     # ── Ensemble aggregation tasks (run once, after all members) ──────
 
     def atmos_ensstat(self):
-        """Ensemble mean/spread statistics.
+        """Ensemble mean/spread statistics over grouped forecast hours.
 
         Triggers on *all* per-member atmos_prod families completing.
-        The suite generator builds the trigger expression from the
-        member family names.
+        The suite generator builds the trigger from the sentinel.
         """
-        task_dict = self._simple_task(
-            'atmos_ensstat',
-            jjob='JGLOBAL_ATMOS_ENSSTAT',
-        )
-        # The suite generator will build the actual trigger from
-        # all member atmos_prod completions.  We store a sentinel.
-        task_dict['trigger'] = '__ALL_MEMBER_ATMOS_PROD__'
-        return task_dict
+        resources = self.get_resource('atmos_ensstat')
+        fhrs = self._get_forecast_hours(
+            self.run, self._configs['atmos_ensstat'])
+
+        return {
+            'task_name': 'atmos_ensstat',
+            'jjob': 'JGLOBAL_ATMOS_ENSSTAT',
+            'resources': resources,
+            'trigger': '__ALL_MEMBER_ATMOS_PROD__',
+            'product_task': True,
+            'service_task': False,
+            'component': 'atmos',
+            'config': 'atmos_ensstat',
+            'forecast_hours': fhrs,
+        }
 
     def awips(self):
         return self._simple_task(

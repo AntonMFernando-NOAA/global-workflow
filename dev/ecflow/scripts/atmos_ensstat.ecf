@@ -22,14 +22,23 @@ if [[ ${status} -ne 0 ]]; then
 fi
 
 export job="atmos_ensstat"
-export jobid="${job}.${SLURM_JOB_ID:-$$}"
 
-"${HOMEglobal}/dev/jobs/JGLOBAL_ATMOS_ENSSTAT"
-status=$?
-if [[ ${status} -ne 0 ]]; then
-  ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT***"
-  ecflow_client --abort
-  exit "${status}"
-fi
+# Process grouped forecast hours sequentially within this Slurm job.
+export FORECAST_HOUR jobid
+IFS=',' read -ra _fhrs <<< "%FHR_LIST%"
+for fhr in "${_fhrs[@]}"; do
+  fhr3=$(printf '%%03d' "${fhr}")
+  export FORECAST_HOUR="${fhr}"
+  export FHR_LIST="${fhr}"
+  jobid="${job}_f${fhr3}.${SLURM_JOB_ID:-$$}"
+
+  "${HOMEglobal}/dev/jobs/JGLOBAL_ATMOS_ENSSTAT"
+  status=$?
+  if [[ ${status} -ne 0 ]]; then
+    ecflow_client --msg="***JOB ${ECF_NAME} ERROR at f${fhr3}***"
+    ecflow_client --abort
+    exit "${status}"
+  fi
+done
 
 %include <tail.h>
