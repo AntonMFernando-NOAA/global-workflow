@@ -93,11 +93,6 @@ def parse_args(default_yaml: Path = None) -> argparse.Namespace:
         yaml_kwargs['required'] = True
     parser.add_argument("-y", "--yaml", **yaml_kwargs)
     parser.add_argument(
-        "--load-only",
-        action="store_true",
-        help="Load the suite definition but do not begin it.",
-    )
-    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite a previously created experiment.",
@@ -406,18 +401,11 @@ def run(default_yaml: Path = None) -> None:
     load_suite(suite_name, def_file)
     print(f"  Suite {suite_name} loaded.")
 
-    # Step 4: Begin the suite (or stop at load-only)
-    if args.load_only:
-        print("[4/4] --load-only specified, suite NOT started.")
-        print(f"  Inspect in ecflow_ui, then run:")
-        print(f"    ecflow_client --begin={suite_name}")
-    else:
-        print("[4/4] Beginning suite...")
-        ecflow_client(f"--begin={suite_name}")
-        print(f"  [OK] Suite {suite_name} started.")
-
     print()
     print("=== Done ===")
+    print(f"Suite loaded but NOT started. To begin the run:")
+    print(f"    ecflow_client --begin={suite_name}")
+    print()
     print(f"Monitor with: ecflow_client --get_state /{suite_name}")
     print("         or:  ecflow_ui  (if X11 available)")
     print()
