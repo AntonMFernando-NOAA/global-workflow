@@ -80,16 +80,11 @@ unset ECF_HOSTFILE
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
 
 # ── Step 1c: Choose an ecFlow server ─────────────────────────────
-#
-# Option A: Use a shared server (ask your team for the host/port)
-export ECF_HOST=uecflow01
-export ECF_PORT=23385
-#
-# Option B: Start your own server (see step 2 below)
-# Pick a unique port number. To avoid collisions with other users,
-# use your UID offset by 1500:
-#   export ECF_PORT=$(( $(id -u) + 1500 ))
-#   echo "Your ECF_PORT: ${ECF_PORT}"
+# Each user runs their own ecFlow server on a unique port.
+# Use your UID offset by 1500 to avoid collisions with other users:
+export ECF_PORT=$(( $(id -u) + 1500 ))
+export ECF_HOST=$(hostname)
+echo "Your ecFlow server: ${ECF_HOST}:${ECF_PORT}"
 
 # ── Step 1d: Set the ecFlow job directory ────────────────────────
 # This is where ecFlow writes .job files and captures .jobout output.
@@ -180,8 +175,8 @@ ssh -X <username>@ursa.rdhpcs.noaa.gov
 # 2. Source your environment (or add to ~/.bashrc once)
 module load ecflow
 unset ECF_HOSTFILE
-export ECF_HOST=uecflow01
-export ECF_PORT=23385
+export ECF_PORT=$(( $(id -u) + 1500 ))
+export ECF_HOST=$(hostname)
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
 
