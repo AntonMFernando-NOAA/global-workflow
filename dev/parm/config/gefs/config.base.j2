@@ -206,6 +206,11 @@ case "${APP}" in
     ;;
 esac
 
+# Ursa lacks the aerosol emission input data required by prep_emissions.
+if [[ "${machine}" == "URSA" ]]; then
+  export DO_AERO_FCST="NO"
+fi
+
 # Output frequency of the forecast model (for cycling)
 export FHMIN=0
 export FHMAX=9
