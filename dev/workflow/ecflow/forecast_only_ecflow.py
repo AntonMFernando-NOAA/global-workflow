@@ -285,22 +285,27 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             family atmos_prod
               family mem000
                 edit ENSMEM / MEMDIR
-                [product fhr children or simple task]
+                task f000 ...           # fhr children directly
               endfamily
               family mem001 ...
             endfamily
 
-        Trigger rewriting adjusts paths: mem000 products trigger on
-        the sibling ``fcst``; memNNN products trigger on
-        ``fcst_ens/memNNN``.
+        For product tasks, forecast-hour children are emitted directly
+        inside each member family (no extra wrapper family).
         """
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         msp = ' ' * (indent + 4)
+        tsp = ' ' * (indent + 6)
 
         task_name = td['task_name']
+        is_product = td.get('product_task', False)
         lines = []
         lines.append(f'{sp}family {task_name}')
+
+        if is_product:
+            lines.append(f"{fsp}edit TASK '{task_name}'")
+
         lines.append('')
 
         for mem in range(0, self._nmem + 1):
@@ -316,15 +321,71 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append(f'{fsp}family {mem_name}')
             lines.append(f"{msp}edit ENSMEM '{mem_str}'")
             lines.append(f"{msp}edit MEMDIR '{mem_name}'")
+
+            rewritten_trigger = td_copy.get('trigger')
+            if rewritten_trigger:
+                lines.append(f'{msp}trigger {rewritten_trigger}')
             lines.append('')
 
-            lines += self._emit_task(td_copy, indent + 4)
+            if is_product:
+                # Emit fhr group children directly inside the member
+                # family without an extra product wrapper.
+                lines += self._emit_product_children(td_copy, indent + 4)
+            else:
+                # Simple per-member task.
+                self._copy_map[task_name] = task_name
+                lines.append(f'{msp}task {task_name}')
+                lines.append(f"{tsp}edit TASK '{task_name}'")
+                lines += self._resource_edits(
+                    td_copy['resources'], tsp)
             lines.append('')
 
             lines.append(f'{fsp}endfamily')
             lines.append('')
 
         lines.append(f'{sp}endfamily')
+        return lines
+
+    def _emit_product_children(self, task_dict: Dict,
+                               indent: int) -> List[str]:
+        """Emit forecast-hour group children for a product task.
+
+        Produces the grouped fhr tasks directly (no wrapping family),
+        for use inside a per-member family.
+        """
+        sp = ' ' * indent
+        tsp = ' ' * (indent + 2)
+
+        task_name = task_dict['task_name']
+        res = task_dict['resources']
+        fhrs = task_dict['forecast_hours']
+        config_name = task_dict['config']
+
+        max_tasks = self._configs.get(config_name, {}).get('MAX_TASKS', 25)
+        ngroups = min(max_tasks, len(fhrs))
+        groups = self._group_fhrs(fhrs, ngroups)
+        base_walltime = res.get('walltime', '00:15:00')
+
+        lines = []
+        lines += self._resource_edits(res, sp, skip_walltime=True)
+        lines.append(f"{sp}# {len(fhrs)} forecast hours in {ngroups} groups")
+        lines.append('')
+
+        for grp in groups:
+            if len(grp) == 1:
+                label = f'f{grp[0]:03d}'
+            else:
+                label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
+
+            self._copy_map[label] = task_name
+            fhr_list_str = ','.join(str(f) for f in grp)
+            grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
+
+            lines.append(f'{sp}task {label}')
+            lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
+            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
+            lines.append('')
+
         return lines
 
     def _rewrite_member_trigger(self, trigger: str, mem: int) -> str:
