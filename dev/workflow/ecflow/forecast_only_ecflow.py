@@ -140,6 +140,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         # ── Cycle family ──────────────────────────────────────────────
         sdate = self._base['SDATE_GFS']
         cycle_str = sdate.strftime('%Y%m%d%H')
+        self._cycle_path = f'/{suite_name}/{self._run}/{cycle_str}'
         lines.append(f'{" " * indent}family {cycle_str}')
         indent = 6
         lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
@@ -391,10 +392,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _rewrite_member_trigger(self, trigger: str, mem: int) -> str:
         """Adjust trigger paths for member context.
 
-        Per-member tasks sit at ``{task_name}/memNNN/``, one level below
-        the cycle family.  ``fcst`` is a cycle-level sibling for mem000.
-        For perturbed members, the forecast is at ``fcst_ens/memNNN``.
+        Uses absolute paths from the suite root since ecFlow does not
+        reliably support multi-level ``../../`` relative references.
         """
+        cycle_path = self._cycle_path
+
         parts = trigger.split(' and ')
         rewritten = []
         for part in parts:
@@ -403,16 +405,12 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
             if node_name == 'fcst':
                 if mem == 0:
-                    # mem000 products: fcst is a sibling at cycle level,
-                    # but we're inside {task_name}/mem000/, so go up two.
                     rewritten.append(part.replace(
-                        'fcst', '../../fcst'))
+                        'fcst', f'{cycle_path}/fcst'))
                 else:
-                    # memNNN products: trigger on the member's forecast
-                    # segment family completing.
                     rewritten.append(part.replace(
                         'fcst',
-                        f'../../fcst_ens/mem{mem:03d}/fcst_ens'))
+                        f'{cycle_path}/fcst_ens/mem{mem:03d}/fcst_ens'))
             else:
                 rewritten.append(part)
 
@@ -423,16 +421,17 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _resolve_sentinel(self, sentinel: str) -> str:
         """Resolve a sentinel to per-member trigger expressions.
 
-        Products are at cycle level: ``{task_name}/memNNN``.
+        Products are at cycle level: ``{cycle_path}/{task_name}/memNNN``.
         """
         family_name = _SENTINEL_MAP.get(sentinel)
         if not family_name:
             return sentinel
 
+        cycle_path = self._cycle_path
         parts = []
         for mem in range(0, self._nmem + 1):
             parts.append(
-                f'{family_name}/mem{mem:03d} == complete')
+                f'{cycle_path}/{family_name}/mem{mem:03d} == complete')
         return ' and '.join(parts)
 
     @staticmethod
