@@ -17,7 +17,7 @@ The ``.def`` hierarchy for ensemble runs::
           task fcst                          # control (mem000)
           family ensemble
             family mem001
-              task efcs
+          task fcst_ens
               family atmos_prod ...
             endfamily
           endfamily
@@ -227,9 +227,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
             for td in ensemble_tasks:
-                # efcs is for perturbed members only; mem000 uses the
+                # fcst_ens is for perturbed members only; mem000 uses the
                 # top-level control forecast.
-                if td['task_name'] == 'efcs' and mem == 0:
+                if td['task_name'] == 'fcst_ens' and mem == 0:
                     continue
 
                 td_copy = dict(td)
@@ -252,7 +252,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         Pre-ensemble tasks (stage_ic, waveinit, etc.) need ``../../``
         to escape the member and ensemble families.  ``fcst`` becomes
-        ``../../fcst`` for mem000 or ``efcs`` for perturbed members.
+        ``../../fcst`` for mem000 or ``fcst_ens`` for perturbed members.
         """
         pre_ensemble_names = self._get_pre_ensemble_names()
 
@@ -266,7 +266,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 if mem == 0:
                     rewritten.append(part.replace('fcst', '../../fcst'))
                 else:
-                    rewritten.append(part.replace('fcst', 'efcs'))
+                    rewritten.append(part.replace('fcst', 'fcst_ens'))
             elif node_name in pre_ensemble_names:
                 rewritten.append(part.replace(
                     node_name, f'../../{node_name}'))

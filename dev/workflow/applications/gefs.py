@@ -156,7 +156,7 @@ class GEFSAppConfig(AppConfig):
         tasks += ['fcst']
 
         if options['nens'] > 0:
-            tasks += ['efcs']
+            tasks += ['fcst_ens']
 
         tasks += ['atmos_prod']
 
