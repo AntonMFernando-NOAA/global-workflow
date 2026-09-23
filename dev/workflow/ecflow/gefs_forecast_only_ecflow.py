@@ -176,11 +176,18 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
         # ── Post-ensemble tasks (ensstat, arch, cleanup) ──────────────
+        # Collect ensemble task names for trigger rewriting.
+        ens_task_names = {td['task_name'] for td in ensemble_tasks}
+
         for td in post_ensemble:
             trigger = td.get('trigger', '')
-            if trigger and trigger in _SENTINEL_MAP:
-                td = dict(td)  # copy to avoid mutating the original
-                td['trigger'] = self._resolve_sentinel(trigger)
+            if trigger:
+                td = dict(td)
+                if trigger in _SENTINEL_MAP:
+                    td['trigger'] = self._resolve_sentinel(trigger)
+                else:
+                    td['trigger'] = self._rewrite_post_ensemble_trigger(
+                        trigger, ens_task_names)
             task_lines = self._emit_task(td, indent)
             lines += task_lines
             lines.append('')
@@ -269,18 +276,41 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
                                 task_name: str) -> str:
         """Adjust trigger expressions for member context.
 
-        - ``fcst == complete`` for mem000 products becomes
-          ``../../fcst == complete`` (control forecast is outside
-          the ensemble family).
-        - ``fcst == complete`` for memNNN products becomes
-          ``efcs == complete`` (member forecast is a sibling).
+        Tasks inside ``ensemble/memNNN/`` reference nodes outside their
+        family via ``../../`` (two levels up: memNNN → ensemble → cycle).
+
+        - ``fcst == complete`` → ``../../fcst == complete`` (mem000) or
+          ``efcs == complete`` (memNNN, sibling within the member family).
+        - Other pre-ensemble tasks (``stage_ic``, ``waveinit``, etc.)
+          always need ``../../`` since they live at the cycle level.
         """
-        if mem == 0:
-            return trigger.replace('fcst == complete',
-                                   '../../fcst == complete')
-        else:
-            return trigger.replace('fcst == complete',
-                                   'efcs == complete')
+        # Collect names of pre-ensemble tasks (siblings of the ensemble
+        # family, not siblings of member tasks inside it).
+        pre_ensemble_names = set()
+        for tn in self._task_names:
+            td = self._tasks.get_ecflow_task(tn)
+            if td.get('ensemble_task', False):
+                break
+            pre_ensemble_names.add(tn)
+
+        parts = trigger.split(' and ')
+        rewritten = []
+        for part in parts:
+            part = part.strip()
+            # Extract the node name from "node == complete"
+            node_name = part.split(' ')[0]
+
+            if node_name == 'fcst':
+                if mem == 0:
+                    rewritten.append(part.replace('fcst', '../../fcst'))
+                else:
+                    rewritten.append(part.replace('fcst', 'efcs'))
+            elif node_name in pre_ensemble_names:
+                rewritten.append(part.replace(node_name, f'../../{node_name}'))
+            else:
+                rewritten.append(part)
+
+        return ' and '.join(rewritten)
 
     # ── Sentinel trigger resolution ───────────────────────────────────
 
@@ -301,6 +331,35 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
             mem_name = f'mem{mem:03d}'
             parts.append(f'ensemble/{mem_name}/{family_name} == complete')
         return ' and '.join(parts)
+
+    def _rewrite_post_ensemble_trigger(self, trigger: str,
+                                       ens_task_names: set) -> str:
+        """Prefix ensemble task references with ``ensemble == complete``.
+
+        Post-ensemble tasks (like ``arch_vrfy``) may trigger on both
+        ensemble tasks (``atmos_prod``, ``ocean_prod``) and non-ensemble
+        siblings (``atmos_ensstat``, ``wave_stat_pnt``).
+
+        Ensemble task references are replaced with a single
+        ``ensemble == complete`` condition (ecFlow triggers on the
+        entire family completing).  Non-ensemble references stay as-is.
+        """
+        parts = trigger.split(' and ')
+        rewritten = []
+        needs_ensemble = False
+
+        for part in parts:
+            part = part.strip()
+            node_name = part.split(' ')[0]
+            if node_name in ens_task_names:
+                needs_ensemble = True
+            else:
+                rewritten.append(part)
+
+        if needs_ensemble:
+            rewritten.insert(0, 'ensemble == complete')
+
+        return ' and '.join(rewritten)
 
     # ── Task rendering (reuses GFS patterns) ──────────────────────────
 
