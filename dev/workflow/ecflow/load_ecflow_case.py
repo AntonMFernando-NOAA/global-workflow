@@ -221,7 +221,8 @@ def generate_ecflow_def(expdir: Path) -> Path:
     for var in ('HOMEglobal', 'EXPDIR', 'COMROOT', 'DATAROOT',
                 'ROTDIR', 'PSLOT', 'NET', 'RUN',
                 'ACCOUNT', 'PARTITION_BATCH', 'PARTITION_SERVICE',
-                'QUEUE', 'QUEUE_SERVICE'):
+                'QUEUE', 'QUEUE_SERVICE',
+                'STMP', 'PTMP', 'HOMEDIR', 'NOSCRUB'):
         if var in os.environ:
             _saved_env[var] = os.environ.pop(var)
 
