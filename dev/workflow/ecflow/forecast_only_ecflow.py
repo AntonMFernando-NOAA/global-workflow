@@ -15,13 +15,22 @@ The ``.def`` hierarchy for ensemble runs::
         family {cycle}
           task stage_ic
           task fcst                          # control (mem000)
-          family fcst_ens
+          family fcst_ens                    # per-member segmented forecasts
             family mem001
-          task fcst_ens
-              family atmos_prod ...
+              family fcst_ens
+                task seg0
+                task seg1
+              endfamily
             endfamily
+            family mem002 ...
           endfamily
-          task atmos_ensstat
+          family atmos_prod                  # per-member products
+            family mem000
+              task f000 ...
+            endfamily
+            family mem001 ...
+          endfamily
+          task atmos_ensstat                 # aggregation
           task arch_vrfy
           task cleanup
         endfamily
@@ -216,11 +225,15 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         return pre, ens, post
 
-    # ── Ensemble family emission ──────────────────────────────────────
+    # ── Ensemble emission ────────────────────────────────────────────
 
-    def _emit_ensemble_family(self, ensemble_tasks: List[Dict],
+    def _emit_fcst_ens_family(self, fcst_td: Dict,
                               indent: int) -> List[str]:
-        """Emit ``family fcst_ens`` with per-member sub-families."""
+        """Emit ``family fcst_ens`` with per-member segmented forecasts.
+
+        Only the forecast task lives here — products are emitted
+        separately at the cycle level via ``_emit_per_member_task``.
+        """
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         msp = ' ' * (indent + 4)
@@ -229,31 +242,84 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{sp}family fcst_ens')
         lines.append(f'{fsp}# {self._nmem + 1} members '
                      f'(mem000=control + {self._nmem} perturbed)')
+
+        # Family-level trigger from the task dict (stage_ic, waveinit, etc.)
+        trigger = fcst_td.get('trigger', '')
+        if trigger:
+            lines.append(f'{fsp}trigger {trigger}')
         lines.append('')
 
         for mem in range(0, self._nmem + 1):
             mem_str = f'{mem:03d}'
             mem_name = f'mem{mem_str}'
 
+            # mem000 control forecast is emitted as top-level 'fcst';
+            # skip it inside fcst_ens.
+            if mem == 0:
+                continue
+
+            td_copy = dict(fcst_td)
+            # Remove trigger from individual members — it's on the family.
+            td_copy['trigger'] = None
+
             lines.append(f'{fsp}family {mem_name}')
             lines.append(f"{msp}edit ENSMEM '{mem_str}'")
             lines.append(f"{msp}edit MEMDIR '{mem_name}'")
             lines.append('')
 
-            for td in ensemble_tasks:
-                # fcst_ens is for perturbed members only; mem000 uses the
-                # top-level control forecast.
-                if td['task_name'] == 'fcst_ens' and mem == 0:
-                    continue
+            # Emit segmented forecast sub-tasks inside the member family.
+            lines += self._emit_task(td_copy, indent + 4)
+            lines.append('')
 
-                td_copy = dict(td)
-                trigger = td_copy.get('trigger', '')
-                if trigger:
-                    td_copy['trigger'] = self._rewrite_member_trigger(
-                        trigger, mem)
+            lines.append(f'{fsp}endfamily')
+            lines.append('')
 
-                lines += self._emit_task(td_copy, indent + 4)
-                lines.append('')
+        lines.append(f'{sp}endfamily')
+        return lines
+
+    def _emit_per_member_task(self, td: Dict, indent: int) -> List[str]:
+        """Emit a per-member task as a family with member sub-families.
+
+        Produces at the cycle level::
+
+            family atmos_prod
+              family mem000
+                edit ENSMEM / MEMDIR
+                [product fhr children or simple task]
+              endfamily
+              family mem001 ...
+            endfamily
+
+        Trigger rewriting adjusts paths: mem000 products trigger on
+        the sibling ``fcst``; memNNN products trigger on
+        ``fcst_ens/memNNN``.
+        """
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)
+        msp = ' ' * (indent + 4)
+
+        task_name = td['task_name']
+        lines = []
+        lines.append(f'{sp}family {task_name}')
+        lines.append('')
+
+        for mem in range(0, self._nmem + 1):
+            mem_str = f'{mem:03d}'
+            mem_name = f'mem{mem_str}'
+
+            td_copy = dict(td)
+            trigger = td_copy.get('trigger', '')
+            if trigger:
+                td_copy['trigger'] = self._rewrite_member_trigger(
+                    trigger, mem)
+
+            lines.append(f'{fsp}family {mem_name}')
+            lines.append(f"{msp}edit ENSMEM '{mem_str}'")
+            lines.append(f"{msp}edit MEMDIR '{mem_name}'")
+            lines.append('')
+
+            lines += self._emit_task(td_copy, indent + 4)
+            lines.append('')
 
             lines.append(f'{fsp}endfamily')
             lines.append('')
@@ -264,12 +330,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _rewrite_member_trigger(self, trigger: str, mem: int) -> str:
         """Adjust trigger paths for member context.
 
-        Pre-ensemble tasks (stage_ic, waveinit, etc.) need ``../../``
-        to escape the member and fcst_ens families.  ``fcst`` becomes
-        ``../../fcst`` for mem000 or ``fcst_ens`` for perturbed members.
+        Per-member tasks sit at ``{task_name}/memNNN/``, one level below
+        the cycle family.  ``fcst`` is a cycle-level sibling for mem000.
+        For perturbed members, the forecast is at ``fcst_ens/memNNN``.
         """
-        pre_ensemble_names = self._get_pre_ensemble_names()
-
         parts = trigger.split(' and ')
         rewritten = []
         for part in parts:
@@ -278,31 +342,28 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
             if node_name == 'fcst':
                 if mem == 0:
-                    rewritten.append(part.replace('fcst', '../../fcst'))
+                    # mem000 products: fcst is a sibling at cycle level,
+                    # but we're inside {task_name}/mem000/, so go up two.
+                    rewritten.append(part.replace(
+                        'fcst', '../../fcst'))
                 else:
-                    rewritten.append(part.replace('fcst', 'fcst_ens'))
-            elif node_name in pre_ensemble_names:
-                rewritten.append(part.replace(
-                    node_name, f'../../{node_name}'))
+                    # memNNN products: trigger on the member's forecast
+                    # segment family completing.
+                    rewritten.append(part.replace(
+                        'fcst',
+                        f'../../fcst_ens/mem{mem:03d}/fcst_ens'))
             else:
                 rewritten.append(part)
 
         return ' and '.join(rewritten)
 
-    def _get_pre_ensemble_names(self) -> Set[str]:
-        """Return the set of task names that precede ensemble tasks."""
-        names: Set[str] = set()
-        for tn in self._task_names:
-            td = self._tasks.get_ecflow_task(tn)
-            if td.get('ensemble_task', False):
-                break
-            names.add(tn)
-        return names
-
     # ── Sentinel / post-ensemble trigger resolution ───────────────────
 
     def _resolve_sentinel(self, sentinel: str) -> str:
-        """Resolve a sentinel to per-member trigger expressions."""
+        """Resolve a sentinel to per-member trigger expressions.
+
+        Products are at cycle level: ``{task_name}/memNNN``.
+        """
         family_name = _SENTINEL_MAP.get(sentinel)
         if not family_name:
             return sentinel
@@ -310,33 +371,21 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         parts = []
         for mem in range(0, self._nmem + 1):
             parts.append(
-                f'fcst_ens/mem{mem:03d}/{family_name} == complete')
+                f'{family_name}/mem{mem:03d} == complete')
         return ' and '.join(parts)
 
     @staticmethod
     def _rewrite_post_ensemble_trigger(trigger: str,
                                        ens_task_names: Set[str]) -> str:
-        """Replace per-member task references with ``fcst_ens == complete``.
+        """Rewrite triggers for post-ensemble tasks.
 
-        Non-ensemble sibling references (e.g. ``atmos_ensstat``) stay
-        as-is.
+        Per-member product families (``atmos_prod``, ``ocean_prod``, etc.)
+        are now cycle-level siblings, so ``atmos_prod == complete``
+        correctly triggers when all members inside the family finish.
+        ``fcst_ens == complete`` triggers when all member forecasts finish.
+        No rewriting needed — ecFlow family completion handles it.
         """
-        parts = trigger.split(' and ')
-        rewritten = []
-        needs_ensemble = False
-
-        for part in parts:
-            part = part.strip()
-            node_name = part.split(' ')[0]
-            if node_name in ens_task_names:
-                needs_ensemble = True
-            else:
-                rewritten.append(part)
-
-        if needs_ensemble:
-            rewritten.insert(0, 'fcst_ens == complete')
-
-        return ' and '.join(rewritten)
+        return trigger
 
     # ── Task rendering ────────────────────────────────────────────────
 
