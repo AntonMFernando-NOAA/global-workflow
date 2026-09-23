@@ -9,7 +9,7 @@ are expressed as ecFlow trigger strings rather than Rocoto XML.
 
 GEFS adds ensemble-specific concepts on top of the GFS task model:
 
-- **fcst_ens** (ensemble forecast): one forecast per ensemble member, each
+- **fcst_member** (ensemble forecast): one forecast per ensemble member, each
   potentially segmented.  Returns a dict with ``ensemble_task: True``.
 - **Per-member product tasks**: ``atmos_prod``, ``ocean_prod``, ``ice_prod``,
   ``wavepostgridded`` run once per member (mem000 .. memNNN).  These
@@ -140,7 +140,7 @@ class GEFSEcFlowTasks(EcFlowTasks):
 
     # ── Ensemble forecast (per member) ────────────────────────────────
 
-    def fcst_ens(self):
+    def fcst_member(self):
         """Ensemble member forecasts (mem001..memNNN).
 
         Returns a dict with ``ensemble_task: True``.  The suite
@@ -155,7 +155,7 @@ class GEFSEcFlowTasks(EcFlowTasks):
         trigger = ' and '.join(deps)
 
         task_dict = self._simple_task(
-            'fcst_ens',
+            'fcst_member',
             jjob='JGLOBAL_FCST',
             trigger=trigger,
             resource_name='efcs',

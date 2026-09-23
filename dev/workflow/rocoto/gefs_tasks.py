@@ -129,7 +129,7 @@ class GEFSTasks(Tasks):
 
         return task
 
-    def fcst_ens(self):
+    def fcst_member(self):
         num_fcst_segments = len(self.options['fcst_segments']) - 1
         resources = self.get_resource('efcs')
 

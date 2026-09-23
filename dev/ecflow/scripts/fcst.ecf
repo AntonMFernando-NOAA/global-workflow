@@ -21,8 +21,19 @@ if [[ ${status} -ne 0 ]]; then
   exit "${status}"
 fi
 
+# For ensemble members, ENSMEM/MEMDIR are set by the parent family.
+# For the control forecast, they default to empty (JGLOBAL_FCST
+# uses ${ENSMEM:--1} to detect control vs member).
+ENSMEM_VAL="%ENSMEM:%"
+if [[ -n "${ENSMEM_VAL}" ]]; then
+  export ENSMEM="${ENSMEM_VAL}"
+  export MEMDIR="%MEMDIR:%"
+  export jobid="fcst_mem${ENSMEM}.${SLURM_JOB_ID:-$$}"
+else
+  export jobid="fcst.${SLURM_JOB_ID:-$$}"
+fi
+
 export job="fcst"
-export jobid="${job}.${SLURM_JOB_ID:-$$}"
 export FCST_SEGMENT=%FCST_SEGMENT%
 
 "${HOMEglobal}/dev/jobs/JGLOBAL_FCST"

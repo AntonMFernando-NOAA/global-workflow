@@ -6,7 +6,7 @@ Unified forecast-only ecFlow suite generator.
 Handles both single-member (GFS) and ensemble (GEFS, SFS) workflows.
 When ``NMEM_ENS == 0``, all tasks are emitted linearly.  When
 ``NMEM_ENS > 0``, tasks marked with ``ensemble_task: True`` are wrapped
-in a ``family fcst_ens`` with per-member sub-families.
+in a ``family fcst_member`` with per-member sub-families.
 
 The ``.def`` hierarchy for ensemble runs::
 
@@ -15,12 +15,10 @@ The ``.def`` hierarchy for ensemble runs::
         family {cycle}
           task stage_ic
           task fcst                          # control (mem000)
-          family fcst_ens                    # per-member segmented forecasts
+          family fcst_member                    # per-member segmented forecasts
             family mem001
-              family fcst_ens
-                task seg0
-                task seg1
-              endfamily
+              task seg0
+              task seg1
             endfamily
             family mem002 ...
           endfamily
@@ -37,7 +35,7 @@ The ``.def`` hierarchy for ensemble runs::
       endfamily
     endsuite
 
-For non-ensemble runs, the ``family fcst_ens`` layer is absent and
+For non-ensemble runs, the ``family fcst_member`` layer is absent and
 tasks appear directly under the cycle family.
 """
 
@@ -156,9 +154,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         if ensemble_tasks:
             # Separate forecast tasks from per-member product/simple tasks.
             fcst_ens_tasks = [td for td in ensemble_tasks
-                              if td['task_name'] == 'fcst_ens']
+                              if td['task_name'] == 'fcst_member']
             member_tasks = [td for td in ensemble_tasks
-                            if td['task_name'] != 'fcst_ens']
+                            if td['task_name'] != 'fcst_member']
 
             # Emit family fcst_ens with segmented forecasts per member.
             if fcst_ens_tasks:
@@ -230,47 +228,50 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_fcst_ens_family(self, fcst_td: Dict,
                               indent: int) -> List[str]:
-        """Emit ``family fcst_ens`` with per-member segmented forecasts.
+        """Emit ``family fcst_member`` with per-member segmented forecasts.
 
-        Only the forecast task lives here — products are emitted
-        separately at the cycle level via ``_emit_per_member_task``.
+        Segments (seg0, seg1, ...) are emitted directly inside each
+        member family — no extra wrapper.
         """
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         msp = ' ' * (indent + 4)
+        tsp = ' ' * (indent + 6)
+
+        res = fcst_td['resources']
+        num_segments = fcst_td.get('num_segments', 1)
 
         lines = []
-        lines.append(f'{sp}family fcst_ens')
-        lines.append(f'{fsp}# {self._nmem + 1} members '
-                     f'(mem000=control + {self._nmem} perturbed)')
+        lines.append(f'{sp}family fcst_member')
+        lines.append(f'{fsp}# {self._nmem} perturbed members')
 
-        # Family-level trigger from the task dict (stage_ic, waveinit, etc.)
+        # Family-level trigger (stage_ic, waveinit, etc.)
         trigger = fcst_td.get('trigger', '')
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
+
+        lines += self._resource_edits(res, fsp)
         lines.append('')
 
-        for mem in range(0, self._nmem + 1):
+        for mem in range(1, self._nmem + 1):
             mem_str = f'{mem:03d}'
             mem_name = f'mem{mem_str}'
-
-            # mem000 control forecast is emitted as top-level 'fcst';
-            # skip it inside fcst_ens.
-            if mem == 0:
-                continue
-
-            td_copy = dict(fcst_td)
-            # Remove trigger from individual members — it's on the family.
-            td_copy['trigger'] = None
 
             lines.append(f'{fsp}family {mem_name}')
             lines.append(f"{msp}edit ENSMEM '{mem_str}'")
             lines.append(f"{msp}edit MEMDIR '{mem_name}'")
             lines.append('')
 
-            # Emit segmented forecast sub-tasks inside the member family.
-            lines += self._emit_task(td_copy, indent + 4)
-            lines.append('')
+            # Emit segment sub-tasks directly inside the member family.
+            for seg in range(num_segments):
+                seg_name = f'seg{seg}'
+                self._copy_map[seg_name] = 'fcst'
+                lines.append(f'{msp}task {seg_name}')
+                lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
+                if seg > 0:
+                    lines.append(
+                        f'{tsp}trigger seg{seg - 1} == complete')
+                lines.append('')
 
             lines.append(f'{fsp}endfamily')
             lines.append('')
@@ -410,7 +411,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 else:
                     rewritten.append(part.replace(
                         'fcst',
-                        f'{cycle_path}/fcst_ens/mem{mem:03d}/fcst_ens'))
+                        f'{cycle_path}/fcst_member/mem{mem:03d}'))
             else:
                 rewritten.append(part)
 
@@ -498,10 +499,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         for seg in range(num_segments):
             seg_name = f'seg{seg}'
-            # Use task-prefixed key to avoid copy map collisions
-            # between control (fcst) and ensemble (fcst_ens) segments.
-            copy_key = f'{task_name}_seg{seg}'
-            self._copy_map[copy_key] = task_name
+            self._copy_map[seg_name] = task_name
             lines.append(f'{fsp}task {seg_name}')
             lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
             if seg > 0:

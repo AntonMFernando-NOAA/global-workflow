@@ -39,6 +39,19 @@ sys.path.insert(0, str(HOMEglobal / "dev" / "workflow"))
 sys.path.insert(0, str(HOMEglobal / "sorc" / "wxflow" / "src"))
 sys.path.insert(0, str(HOMEglobal / "ush" / "python"))
 
+# Verify that workflow modules are loadable before proceeding.
+# These come from spack-stack via `source dev/ush/load_modules.sh setup`.
+try:
+    import jinja2  # noqa: F401
+except ModuleNotFoundError:
+    print("[ERROR] Python module 'jinja2' not found.")
+    print()
+    print("  Load the workflow modules before running this script:")
+    print()
+    print(f"    source {HOMEglobal}/dev/ush/load_modules.sh setup")
+    print()
+    sys.exit(1)
+
 import setup_expt  # noqa: E402
 import setup_workflow  # noqa: E402
 from hosts import Host  # noqa: E402
