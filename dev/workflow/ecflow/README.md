@@ -503,7 +503,7 @@ Experiment:  setup_expt  setup_workflow ──► ecflow_suite_factory
                               │
 Task defs:   ecflow_tasks_factory ──► GFSEcFlowTasks
                               │          (one method per task)
-Suite gen:   GFSForecastOnlyEcFlowSuite.write()
+Suite gen:   ForecastOnlyEcFlowSuite.write()
                               │
 Output:      {pslot}.def + ecf_scripts/
                               │

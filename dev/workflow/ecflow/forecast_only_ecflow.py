@@ -1,57 +1,41 @@
 #!/usr/bin/env python3
 
 """
-GEFS forecast-only ecFlow suite generator.
+Unified forecast-only ecFlow suite generator.
 
-Extends the GFS pattern with ensemble member handling.  The ``.def``
-hierarchy for a GEFS run looks like::
+Handles both single-member (GFS) and ensemble (GEFS, SFS) workflows.
+When ``NMEM_ENS == 0``, all tasks are emitted linearly.  When
+``NMEM_ENS > 0``, tasks marked with ``ensemble_task: True`` are wrapped
+in a ``family ensemble`` with per-member sub-families.
+
+The ``.def`` hierarchy for ensemble runs::
 
     suite {pslot}
-      [suite-level edits]
-      family gefs
-        edit RUN 'gefs'
+      family {run}
         family {cycle}
-          edit PDY / CYC
-
           task stage_ic
-          task waveinit
           task fcst                          # control (mem000)
-
-          family ensemble                    # per-member forecasts + products
+          family ensemble
             family mem001
-              edit ENSMEM '001'
-              edit MEMDIR 'mem001'
               task efcs
-              family atmos_prod
-                task f000  ...
-              endfamily
-            endfamily
-            family mem002
-              ...
+              family atmos_prod ...
             endfamily
           endfamily
-
-          task atmos_ensstat                 # aggregation
+          task atmos_ensstat
           task arch_vrfy
           task cleanup
         endfamily
       endfamily
     endsuite
 
-Ensemble tasks are identified by ``task_dict['ensemble_task'] == True``.
-The suite collects them, then emits member families inside a single
-``family ensemble`` container.  Non-ensemble tasks are emitted in the
-normal linear order.
-
-Sentinel triggers (``__ALL_MEMBER_ATMOS_PROD__``, etc.) are resolved to
-ecFlow trigger expressions of the form
-``../ensemble/mem000/atmos_prod == complete and .../mem001/atmos_prod == complete``.
+For non-ensemble runs, the ``family ensemble`` layer is absent and
+tasks appear directly under the cycle family.
 """
 
 import os
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from ecflow.ecflow_suite import EcFlowSuite
 from ecflow.ecflow_tasks_factory import ecflow_tasks_factory
@@ -61,26 +45,25 @@ from wxflow import timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
 
-# Sentinel trigger → product family name that must complete per member
+# Sentinel trigger -> product family name that must complete per member
 _SENTINEL_MAP = {
     '__ALL_MEMBER_ATMOS_PROD__': 'atmos_prod',
     '__ALL_MEMBER_WAVEPOSTGRIDDED__': 'wavepostgridded',
 }
 
 
-class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
+class ForecastOnlyEcFlowSuite(EcFlowSuite):
     """
-    ecFlow suite generator for GEFS forecast-only workflows.
+    ecFlow suite generator for forecast-only workflows (GFS, GEFS, SFS).
 
-    Produces a ``.def`` file with per-member families for ensemble
-    forecasts and product tasks, plus aggregation tasks that trigger
-    on all members completing.
+    A single class replaces the per-NET suite generators.  The factory
+    registers it for every ``{net}_forecast-only`` key.
     """
 
     def __init__(self, app_config: AppConfig, ecflow_config: Dict) -> None:
         super().__init__(app_config, ecflow_config)
 
-        self._run = list(app_config.task_names.keys())[0]  # 'gefs'
+        self._run = list(app_config.task_names.keys())[0]
         self._task_names = app_config.task_names[self._run]
         self._options = app_config.run_options[self._run]
         self._configs = app_config.configs[self._run]
@@ -114,32 +97,22 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
                                         'scripts')))
         self._copy_map: Dict[str, str] = {}
 
-        # Fetch all task dicts and classify them
+        # Fetch all task dicts
         all_tasks: List[Dict] = []
         for task_name in self._task_names:
-            task_dict = self._tasks.get_ecflow_task(task_name)
-            all_tasks.append(task_dict)
+            all_tasks.append(self._tasks.get_ecflow_task(task_name))
 
-        # Split into non-ensemble (linear) and ensemble (per-member)
-        pre_ensemble: List[Dict] = []    # before ensemble block
-        ensemble_tasks: List[Dict] = []  # per-member tasks
-        post_ensemble: List[Dict] = []   # after ensemble block
-        seen_ensemble = False
-
-        for td in all_tasks:
-            is_ens = td.get('ensemble_task', False)
-            if is_ens:
-                seen_ensemble = True
-                ensemble_tasks.append(td)
-            elif seen_ensemble:
-                post_ensemble.append(td)
-            else:
-                pre_ensemble.append(td)
+        # Classify into pre-ensemble, ensemble, post-ensemble.
+        # For non-ensemble runs (nmem == 0) everything lands in
+        # pre_ensemble and the other two stay empty.
+        pre_ensemble, ensemble_tasks, post_ensemble = \
+            self._classify_tasks(all_tasks)
 
         lines: List[str] = []
         lines.append(f'# Auto-generated ecFlow suite definition for {suite_name}')
         lines.append(f'# Mode: {self._app_config.mode}  NET: {self._base["NET"]}')
-        lines.append(f'# NMEM_ENS: {self._nmem}')
+        if self._nmem > 0:
+            lines.append(f'# NMEM_ENS: {self._nmem}')
         lines.append(f'# {self.get_cycledefs()}')
         lines.append('')
 
@@ -164,21 +137,18 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
         lines.append('')
 
-        # ── Pre-ensemble tasks (stage_ic, waveinit, control fcst) ─────
+        # ── Pre-ensemble tasks ────────────────────────────────────────
         for td in pre_ensemble:
-            task_lines = self._emit_task(td, indent)
-            lines += task_lines
+            lines += self._emit_task(td, indent)
             lines.append('')
 
-        # ── Ensemble family (per-member forecasts + products) ─────────
+        # ── Ensemble family (only when nmem > 0) ─────────────────────
         if ensemble_tasks:
             lines += self._emit_ensemble_family(ensemble_tasks, indent)
             lines.append('')
 
-        # ── Post-ensemble tasks (ensstat, arch, cleanup) ──────────────
-        # Collect ensemble task names for trigger rewriting.
+        # ── Post-ensemble tasks ───────────────────────────────────────
         ens_task_names = {td['task_name'] for td in ensemble_tasks}
-
         for td in post_ensemble:
             trigger = td.get('trigger', '')
             if trigger:
@@ -188,48 +158,63 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
                 else:
                     td['trigger'] = self._rewrite_post_ensemble_trigger(
                         trigger, ens_task_names)
-            task_lines = self._emit_task(td, indent)
-            lines += task_lines
+            lines += self._emit_task(td, indent)
             lines.append('')
 
-        # Close cycle family
+        # Close cycle, run, suite
         indent = 4
         lines.append(f'{" " * indent}endfamily')
-
         indent = 2
         lines.append(f'{" " * indent}endfamily')
         lines.append('endsuite')
         lines.append('')
 
         def_content = '\n'.join(lines)
-
         os.makedirs(os.path.dirname(def_file), exist_ok=True)
         with open(def_file, 'w') as fh:
             fh.write(def_content)
 
         logger.info(f'ecFlow suite definition written to {def_file}')
-
         self._create_ecf_scripts()
-
         return def_file
+
+    # ── Task classification ───────────────────────────────────────────
+
+    @staticmethod
+    def _classify_tasks(all_tasks: List[Dict]):
+        """Split tasks into pre-ensemble, ensemble, and post-ensemble.
+
+        For non-ensemble runs, every task lands in pre_ensemble.
+        """
+        pre: List[Dict] = []
+        ens: List[Dict] = []
+        post: List[Dict] = []
+        seen_ensemble = False
+
+        for td in all_tasks:
+            if td.get('ensemble_task', False):
+                seen_ensemble = True
+                ens.append(td)
+            elif seen_ensemble:
+                post.append(td)
+            else:
+                pre.append(td)
+
+        return pre, ens, post
 
     # ── Ensemble family emission ──────────────────────────────────────
 
     def _emit_ensemble_family(self, ensemble_tasks: List[Dict],
                               indent: int) -> List[str]:
-        """Emit a ``family ensemble`` containing per-member sub-families.
-
-        Each member family (mem000 .. memNNN) contains its own copy
-        of every ensemble task — forecasts, product families, and
-        per-member simple tasks.  The control member is mem000.
-        """
+        """Emit ``family ensemble`` with per-member sub-families."""
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         msp = ' ' * (indent + 4)
 
         lines = []
         lines.append(f'{sp}family ensemble')
-        lines.append(f'{fsp}# {self._nmem + 1} members (mem000=control + {self._nmem} perturbed)')
+        lines.append(f'{fsp}# {self._nmem + 1} members '
+                     f'(mem000=control + {self._nmem} perturbed)')
         lines.append('')
 
         for mem in range(0, self._nmem + 1):
@@ -242,62 +227,39 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
             for td in ensemble_tasks:
-                task_name = td['task_name']
-
-                # Control (mem000) forecast is emitted as the top-level
-                # 'fcst' task, not inside ensemble.  efcs is for members
-                # 1..N only.  But we also need mem000 products.
-                if task_name == 'efcs' and mem == 0:
+                # efcs is for perturbed members only; mem000 uses the
+                # top-level control forecast.
+                if td['task_name'] == 'efcs' and mem == 0:
                     continue
 
-                # Rewrite triggers for member context.
-                # Inside a member family, 'fcst == complete' needs to
-                # resolve correctly:
-                # - For mem000: the control fcst lives at ../../fcst
-                # - For mem001+: efcs lives at ./efcs
                 td_copy = dict(td)
                 trigger = td_copy.get('trigger', '')
                 if trigger:
                     td_copy['trigger'] = self._rewrite_member_trigger(
-                        trigger, mem, task_name)
+                        trigger, mem)
 
-                task_lines = self._emit_task(td_copy, indent + 4)
-                lines += task_lines
+                lines += self._emit_task(td_copy, indent + 4)
                 lines.append('')
 
             lines.append(f'{fsp}endfamily')
             lines.append('')
 
         lines.append(f'{sp}endfamily')
-
         return lines
 
-    def _rewrite_member_trigger(self, trigger: str, mem: int,
-                                task_name: str) -> str:
-        """Adjust trigger expressions for member context.
+    def _rewrite_member_trigger(self, trigger: str, mem: int) -> str:
+        """Adjust trigger paths for member context.
 
-        Tasks inside ``ensemble/memNNN/`` reference nodes outside their
-        family via ``../../`` (two levels up: memNNN → ensemble → cycle).
-
-        - ``fcst == complete`` → ``../../fcst == complete`` (mem000) or
-          ``efcs == complete`` (memNNN, sibling within the member family).
-        - Other pre-ensemble tasks (``stage_ic``, ``waveinit``, etc.)
-          always need ``../../`` since they live at the cycle level.
+        Pre-ensemble tasks (stage_ic, waveinit, etc.) need ``../../``
+        to escape the member and ensemble families.  ``fcst`` becomes
+        ``../../fcst`` for mem000 or ``efcs`` for perturbed members.
         """
-        # Collect names of pre-ensemble tasks (siblings of the ensemble
-        # family, not siblings of member tasks inside it).
-        pre_ensemble_names = set()
-        for tn in self._task_names:
-            td = self._tasks.get_ecflow_task(tn)
-            if td.get('ensemble_task', False):
-                break
-            pre_ensemble_names.add(tn)
+        pre_ensemble_names = self._get_pre_ensemble_names()
 
         parts = trigger.split(' and ')
         rewritten = []
         for part in parts:
             part = part.strip()
-            # Extract the node name from "node == complete"
             node_name = part.split(' ')[0]
 
             if node_name == 'fcst':
@@ -306,43 +268,44 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
                 else:
                     rewritten.append(part.replace('fcst', 'efcs'))
             elif node_name in pre_ensemble_names:
-                rewritten.append(part.replace(node_name, f'../../{node_name}'))
+                rewritten.append(part.replace(
+                    node_name, f'../../{node_name}'))
             else:
                 rewritten.append(part)
 
         return ' and '.join(rewritten)
 
-    # ── Sentinel trigger resolution ───────────────────────────────────
+    def _get_pre_ensemble_names(self) -> Set[str]:
+        """Return the set of task names that precede ensemble tasks."""
+        names: Set[str] = set()
+        for tn in self._task_names:
+            td = self._tasks.get_ecflow_task(tn)
+            if td.get('ensemble_task', False):
+                break
+            names.add(tn)
+        return names
+
+    # ── Sentinel / post-ensemble trigger resolution ───────────────────
 
     def _resolve_sentinel(self, sentinel: str) -> str:
-        """Resolve a sentinel trigger to a real ecFlow expression.
-
-        ``__ALL_MEMBER_ATMOS_PROD__`` becomes::
-
-            ensemble/mem000/atmos_prod == complete and
-            ensemble/mem001/atmos_prod == complete and ...
-        """
+        """Resolve a sentinel to per-member trigger expressions."""
         family_name = _SENTINEL_MAP.get(sentinel)
         if not family_name:
             return sentinel
 
         parts = []
         for mem in range(0, self._nmem + 1):
-            mem_name = f'mem{mem:03d}'
-            parts.append(f'ensemble/{mem_name}/{family_name} == complete')
+            parts.append(
+                f'ensemble/mem{mem:03d}/{family_name} == complete')
         return ' and '.join(parts)
 
-    def _rewrite_post_ensemble_trigger(self, trigger: str,
-                                       ens_task_names: set) -> str:
-        """Prefix ensemble task references with ``ensemble == complete``.
+    @staticmethod
+    def _rewrite_post_ensemble_trigger(trigger: str,
+                                       ens_task_names: Set[str]) -> str:
+        """Replace per-member task references with ``ensemble == complete``.
 
-        Post-ensemble tasks (like ``arch_vrfy``) may trigger on both
-        ensemble tasks (``atmos_prod``, ``ocean_prod``) and non-ensemble
-        siblings (``atmos_ensstat``, ``wave_stat_pnt``).
-
-        Ensemble task references are replaced with a single
-        ``ensemble == complete`` condition (ecFlow triggers on the
-        entire family completing).  Non-ensemble references stay as-is.
+        Non-ensemble sibling references (e.g. ``atmos_ensstat``) stay
+        as-is.
         """
         parts = trigger.split(' and ')
         rewritten = []
@@ -361,10 +324,10 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         return ' and '.join(rewritten)
 
-    # ── Task rendering (reuses GFS patterns) ──────────────────────────
+    # ── Task rendering ────────────────────────────────────────────────
 
     def _emit_task(self, task_dict: Dict, indent: int) -> List[str]:
-        """Dispatch to product family or simple task emitter."""
+        """Dispatch to the appropriate emitter."""
         if task_dict.get('product_task', False):
             return self._emit_product_family(task_dict, indent)
         num_segments = task_dict.get('num_segments', 1)
@@ -376,7 +339,6 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """Emit a single non-product task node."""
         sp = ' ' * indent
         tsp = ' ' * (indent + 2)
-        lines = []
 
         task_name = task_dict['task_name']
         res = task_dict['resources']
@@ -384,33 +346,20 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         self._copy_map[task_name] = task_name
 
-        lines.append(f'{sp}task {task_name}')
-        lines.append(f"{tsp}edit TASK '{task_name}'")
-
+        lines = [f'{sp}task {task_name}',
+                 f"{tsp}edit TASK '{task_name}'"]
         lines += self._resource_edits(res, tsp)
-
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
 
         return lines
 
-    def _emit_segmented_task(self, task_dict: Dict, indent: int) -> List[str]:
-        """Emit a forecast task with segment sub-tasks.
-
-        For GEFS segmented forecasts, each segment runs sequentially::
-
-            family efcs
-              task seg0
-                edit FCST_SEGMENT '0'
-              task seg1
-                edit FCST_SEGMENT '1'
-                trigger seg0 == complete
-            endfamily
-        """
+    def _emit_segmented_task(self, task_dict: Dict,
+                             indent: int) -> List[str]:
+        """Emit a forecast task with sequential segment sub-tasks."""
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         tsp = ' ' * (indent + 4)
-        lines = []
 
         task_name = task_dict['task_name']
         res = task_dict['resources']
@@ -419,19 +368,16 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         self._copy_map[task_name] = task_name
 
-        lines.append(f'{sp}family {task_name}')
-        lines.append(f"{fsp}edit TASK '{task_name}'")
-
+        lines = [f'{sp}family {task_name}',
+                 f"{fsp}edit TASK '{task_name}'"]
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-
         lines += self._resource_edits(res, fsp)
         lines.append('')
 
         for seg in range(num_segments):
             seg_name = f'seg{seg}'
             self._copy_map[seg_name] = task_name
-
             lines.append(f'{fsp}task {seg_name}')
             lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
             if seg > 0:
@@ -439,15 +385,14 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
         lines.append(f'{sp}endfamily')
-
         return lines
 
-    def _emit_product_family(self, task_dict: Dict, indent: int) -> List[str]:
-        """Emit a product task as a family of per-forecast-hour-group children."""
+    def _emit_product_family(self, task_dict: Dict,
+                             indent: int) -> List[str]:
+        """Emit a product task as grouped forecast-hour children."""
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         tsp = ' ' * (indent + 4)
-        lines = []
 
         task_name = task_dict['task_name']
         res = task_dict['resources']
@@ -458,27 +403,23 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         max_tasks = self._configs.get(config_name, {}).get('MAX_TASKS', 25)
         ngroups = min(max_tasks, len(fhrs))
         groups = self._group_fhrs(fhrs, ngroups)
-
         base_walltime = res.get('walltime', '00:15:00')
 
-        lines.append(f'{sp}family {task_name}')
-        lines.append(f"{fsp}edit TASK '{task_name}'")
-        lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
-
+        lines = [f'{sp}family {task_name}',
+                 f"{fsp}edit TASK '{task_name}'",
+                 f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups"]
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-
         lines += self._resource_edits(res, fsp, skip_walltime=True)
         lines.append('')
 
-        for i, grp in enumerate(groups):
+        for grp in groups:
             if len(grp) == 1:
                 label = f'f{grp[0]:03d}'
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
             self._copy_map[label] = task_name
-
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -488,14 +429,14 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
         lines.append(f'{sp}endfamily')
-
         return lines
+
+    # ── Resource edits ────────────────────────────────────────────────
 
     def _resource_edits(self, res: Dict, indent_str: str, *,
                         skip_walltime: bool = False) -> List[str]:
         """Emit per-task resource edit lines."""
         lines = []
-
         walltime = res.get('walltime', '00:30:00')
         nodes = res.get('nodes', 1)
         ppn = res.get('ppn', 1)
@@ -553,7 +494,8 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         logger.info(f'Copied {copied} .ecf files to {scripts_dir}')
         if skipped:
             unique = sorted(set(skipped))
-            logger.warning(f'Missing source .ecf (skipped): {", ".join(unique)}')
+            logger.warning(
+                f'Missing source .ecf (skipped): {", ".join(unique)}')
 
     # ── Suite-level variables ─────────────────────────────────────────
 
@@ -563,17 +505,18 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         base = self._base
         lines = []
 
-        rotdir = base.get('ROTDIR', os.path.join(str(base.get('COMROOT', '/tmp')),
-                                                  self.pslot))
+        rotdir = base.get('ROTDIR', os.path.join(
+            str(base.get('COMROOT', '/tmp')), self.pslot))
         ecf_log_dir = os.path.join(rotdir, 'logs')
 
-        ecf_host = os.environ.get('ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
+        ecf_host = os.environ.get(
+            'ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
 
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
-        ecf_include = os.environ.get('ECF_INCLUDE',
-                                     os.path.join(self.HOMEglobal, 'dev', 'ecflow',
-                                                  'utils'))
+        ecf_include = os.environ.get(
+            'ECF_INCLUDE',
+            os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'utils'))
 
         lines.append(f"{sp}# ecFlow server connection")
         lines.append(f"{sp}edit ECF_LOGHOST '{ecf_host}'")
@@ -583,7 +526,8 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
-        lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
+        lines.append(
+            f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
         lines.append(f"{sp}# Slurm job submission commands")
@@ -596,16 +540,20 @@ class GEFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ENVIR    '{base.get('envir', 'test')}'")
         lines.append(f"{sp}edit NET      '{base['NET']}'")
         lines.append(f"{sp}edit RUN      '{self._run}'")
-        lines.append(f"{sp}edit APP      '{self._options.get('app', 'S2SWA')}'")
+        lines.append(
+            f"{sp}edit APP      '{self._options.get('app', 'ATM')}'")
         account = base.get('ACCOUNT', '')
         if not account or account == 'UNDEFINED':
             account = os.environ.get('HPC_ACCOUNT', 'fv3-cpu')
         lines.append(f"{sp}edit ACCOUNT  '{account}'")
-        lines.append(f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
+        lines.append(
+            f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
         lines.append(f"{sp}edit PSLOT    '{self.pslot}'")
         lines.append(f"{sp}edit CASE     '{base['CASE']}'")
-        lines.append(f"{sp}edit FHMAX_GFS '{base.get('FHMAX_GFS', 120)}'")
-        lines.append(f"{sp}edit NMEM_ENS  '{self._nmem}'")
+        lines.append(
+            f"{sp}edit FHMAX_GFS '{base.get('FHMAX_GFS', 120)}'")
+        if self._nmem > 0:
+            lines.append(f"{sp}edit NMEM_ENS  '{self._nmem}'")
         lines.append(f"{sp}")
 
         sdate = base['SDATE_GFS']
