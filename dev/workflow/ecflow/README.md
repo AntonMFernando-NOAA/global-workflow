@@ -270,7 +270,9 @@ This will:
 2. Create the experiment via `setup_expt`
 3. Generate the `.def` file and copy `.ecf` scripts
 4. Load the suite into the ecFlow server (with prompt if it already exists)
-5. Begin the suite
+
+The suite is loaded but **not started**. The script prints the
+`ecflow_client --begin` command to run when you are ready.
 
 ### With custom paths
 
@@ -280,17 +282,6 @@ python3 dev/workflow/ecflow/c48_atm_ecflow.py \
     --comroot /scratch4/NCEPDEV/stmp/${USER}/COMROOT \
     --expdir /scratch3/NCEPDEV/global/${USER}/EXPDIR \
     --stmp /scratch4/NCEPDEV/stmp/${USER}
-```
-
-### Load without starting
-
-```bash
-python3 dev/workflow/ecflow/c48_atm_ecflow.py --load-only
-```
-
-Then inspect in `ecflow_ui` and start manually:
-```bash
-ecflow_client --begin=C48_ATM_ecflow
 ```
 
 ### CLI options
@@ -303,7 +294,6 @@ ecflow_client --begin=C48_ATM_ecflow
 | `--expdir PATH` | Override experiment config directory |
 | `--stmp PATH` | Override runtime scratch directory |
 | `--suite-name NAME` | Override ecFlow suite name |
-| `--load-only` | Load the suite but do not start it |
 | `--overwrite` | Overwrite a previously created experiment |
 
 ## 4. Monitoring
