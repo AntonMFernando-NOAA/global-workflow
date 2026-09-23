@@ -13,9 +13,17 @@ Usage::
     python3 dev/workflow/ecflow/c48_atm_ecflow.py --yaml /other/case.yaml
 """
 
+import sys
 from pathlib import Path
 
-from ecflow.load_ecflow_case import HOMEglobal, run
+# Ensure dev/workflow/ is on sys.path so that "from ecflow.load_ecflow_case"
+# resolves to our ecflow/ package, not the system ecFlow Python bindings.
+_SCRIPT_DIR = Path(__file__).resolve().parent          # dev/workflow/ecflow/
+_WORKFLOW_DIR = _SCRIPT_DIR.parent                     # dev/workflow/
+if str(_WORKFLOW_DIR) not in sys.path:
+    sys.path.insert(0, str(_WORKFLOW_DIR))
+
+from ecflow.load_ecflow_case import HOMEglobal, run  # noqa: E402
 
 C48_ATM_YAML = HOMEglobal / "dev" / "ci" / "cases" / "pr" / "C48_ATM.yaml"
 
