@@ -142,10 +142,24 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines += self._emit_task(td, indent)
             lines.append('')
 
-        # ── Ensemble family (only when nmem > 0) ─────────────────────
+        # ── Ensemble tasks (only when nmem > 0) ──────────────────────
         if ensemble_tasks:
-            lines += self._emit_ensemble_family(ensemble_tasks, indent)
-            lines.append('')
+            # Separate forecast tasks from per-member product/simple tasks.
+            fcst_ens_tasks = [td for td in ensemble_tasks
+                              if td['task_name'] == 'fcst_ens']
+            member_tasks = [td for td in ensemble_tasks
+                            if td['task_name'] != 'fcst_ens']
+
+            # Emit family fcst_ens with segmented forecasts per member.
+            if fcst_ens_tasks:
+                lines += self._emit_fcst_ens_family(
+                    fcst_ens_tasks[0], indent)
+                lines.append('')
+
+            # Emit per-member product/simple task families at cycle level.
+            for td in member_tasks:
+                lines += self._emit_per_member_task(td, indent)
+                lines.append('')
 
         # ── Post-ensemble tasks ───────────────────────────────────────
         ens_task_names = {td['task_name'] for td in ensemble_tasks}
