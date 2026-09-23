@@ -489,8 +489,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         trigger = task_dict.get('trigger')
         num_segments = task_dict.get('num_segments', 1)
 
-        self._copy_map[task_name] = task_name
-
         lines = [f'{sp}family {task_name}',
                  f"{fsp}edit TASK '{task_name}'"]
         if trigger:
@@ -500,7 +498,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         for seg in range(num_segments):
             seg_name = f'seg{seg}'
-            self._copy_map[seg_name] = task_name
+            # Use task-prefixed key to avoid copy map collisions
+            # between control (fcst) and ensemble (fcst_ens) segments.
+            copy_key = f'{task_name}_seg{seg}'
+            self._copy_map[copy_key] = task_name
             lines.append(f'{fsp}task {seg_name}')
             lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
             if seg > 0:

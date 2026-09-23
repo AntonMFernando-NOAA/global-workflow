@@ -23,7 +23,7 @@ fi
 
 export job="fcst"
 export jobid="${job}.${SLURM_JOB_ID:-$$}"
-export FCST_SEGMENT=0
+export FCST_SEGMENT=%FCST_SEGMENT%
 
 "${HOMEglobal}/dev/jobs/JGLOBAL_FCST"
 status=$?
