@@ -6,7 +6,7 @@ Unified forecast-only ecFlow suite generator.
 Handles both single-member (GFS) and ensemble (GEFS, SFS) workflows.
 When ``NMEM_ENS == 0``, all tasks are emitted linearly.  When
 ``NMEM_ENS > 0``, tasks marked with ``ensemble_task: True`` are wrapped
-in a ``family ensemble`` with per-member sub-families.
+in a ``family fcst_ens`` with per-member sub-families.
 
 The ``.def`` hierarchy for ensemble runs::
 
@@ -15,7 +15,7 @@ The ``.def`` hierarchy for ensemble runs::
         family {cycle}
           task stage_ic
           task fcst                          # control (mem000)
-          family ensemble
+          family fcst_ens
             family mem001
           task fcst_ens
               family atmos_prod ...
@@ -28,7 +28,7 @@ The ``.def`` hierarchy for ensemble runs::
       endfamily
     endsuite
 
-For non-ensemble runs, the ``family ensemble`` layer is absent and
+For non-ensemble runs, the ``family fcst_ens`` layer is absent and
 tasks appear directly under the cycle family.
 """
 
@@ -206,13 +206,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_ensemble_family(self, ensemble_tasks: List[Dict],
                               indent: int) -> List[str]:
-        """Emit ``family ensemble`` with per-member sub-families."""
+        """Emit ``family fcst_ens`` with per-member sub-families."""
         sp = ' ' * indent
         fsp = ' ' * (indent + 2)
         msp = ' ' * (indent + 4)
 
         lines = []
-        lines.append(f'{sp}family ensemble')
+        lines.append(f'{sp}family fcst_ens')
         lines.append(f'{fsp}# {self._nmem + 1} members '
                      f'(mem000=control + {self._nmem} perturbed)')
         lines.append('')
@@ -251,7 +251,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         """Adjust trigger paths for member context.
 
         Pre-ensemble tasks (stage_ic, waveinit, etc.) need ``../../``
-        to escape the member and ensemble families.  ``fcst`` becomes
+        to escape the member and fcst_ens families.  ``fcst`` becomes
         ``../../fcst`` for mem000 or ``fcst_ens`` for perturbed members.
         """
         pre_ensemble_names = self._get_pre_ensemble_names()
@@ -296,13 +296,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         parts = []
         for mem in range(0, self._nmem + 1):
             parts.append(
-                f'ensemble/mem{mem:03d}/{family_name} == complete')
+                f'fcst_ens/mem{mem:03d}/{family_name} == complete')
         return ' and '.join(parts)
 
     @staticmethod
     def _rewrite_post_ensemble_trigger(trigger: str,
                                        ens_task_names: Set[str]) -> str:
-        """Replace per-member task references with ``ensemble == complete``.
+        """Replace per-member task references with ``fcst_ens == complete``.
 
         Non-ensemble sibling references (e.g. ``atmos_ensstat``) stay
         as-is.
@@ -320,7 +320,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 rewritten.append(part)
 
         if needs_ensemble:
-            rewritten.insert(0, 'ensemble == complete')
+            rewritten.insert(0, 'fcst_ens == complete')
 
         return ' and '.join(rewritten)
 
