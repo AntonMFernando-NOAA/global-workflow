@@ -370,10 +370,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines = []
         lines += self._resource_edits(res, sp, skip_walltime=True)
-        # ecFlow resolves .ecf by task name (f000.ecf). Since multiple
-        # product families share the same fhr task names, ECF_SCRIPT
-        # overrides the lookup to use the parent's TASK name instead.
-        lines.append(f"{sp}edit ECF_SCRIPT '%ECF_FILES%/%TASK%.ecf'")
+        lines.append(f"{sp}edit JJOB '{task_dict['jjob']}'")
         lines.append(f"{sp}# {len(fhrs)} forecast hours in {ngroups} groups")
         lines.append('')
 
@@ -383,7 +380,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = task_name
+            self._copy_map[label] = 'product'
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -533,7 +530,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines = [f'{sp}family {task_name}',
                  f"{fsp}edit TASK '{task_name}'",
-                 f"{fsp}edit ECF_SCRIPT '%ECF_FILES%/%TASK%.ecf'",
+                 f"{fsp}edit JJOB '{task_dict['jjob']}'",
                  f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups"]
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
@@ -546,7 +543,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = task_name
+            self._copy_map[label] = 'product'
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
