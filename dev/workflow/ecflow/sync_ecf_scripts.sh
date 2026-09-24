@@ -1,21 +1,15 @@
 #!/bin/bash
-# Refresh the ecf_scripts directory from the repo source .ecf files.
-#
-# Reads ecf_scripts.manifest (written by the .def generator) and
-# copies each source .ecf into the ECF_FILES directory used by ecFlow.
-# Run this after editing an .ecf file in the repo to pick up changes
-# without regenerating the full .def.
+# Copy all .ecf scripts from the repo source directory into the
+# experiment's ecf_scripts/ directory used by ecFlow.
 #
 # Usage:
 #   sync_ecf_scripts.sh <ecf_scripts_dir>
 #
-# The manifest lives inside <ecf_scripts_dir>/ecf_scripts.manifest
-# and contains:
-#   - A header line: # ECF_SRC_DIR=<path to repo .ecf sources>
-#   - One line per file: <child_name>\t<source_name>
-#
-# Example:
-#   sync_ecf_scripts.sh /scratch3/.../EXPDIR/C48_ATM_ecflow/ecf_scripts
+# Copies every .ecf file from ECF_SRC_DIR (recorded in the manifest
+# header) into <ecf_scripts_dir>.  ecFlow resolves .ecf files by
+# task name, so all product families sharing the same task name (f000)
+# use the same .ecf file — the TASK edit variable on the parent family
+# identifies the J-Job.
 
 set -eu
 
@@ -29,7 +23,7 @@ manifest="${ecf_dir}/ecf_scripts.manifest"
 
 if [[ ! -f "${manifest}" ]]; then
   echo "[ERROR] Manifest not found: ${manifest}" >&2
-  echo "  Run load_ecflow_case.py first to generate it." >&2
+  echo "  Run run_ecflow_case.py first to generate it." >&2
   exit 1
 fi
 
@@ -45,22 +39,12 @@ if [[ ! -d "${src_dir}" ]]; then
   exit 1
 fi
 
+# Copy all .ecf files from source to experiment directory.
 count=0
-while IFS=$'\t' read -r child_name source_name; do
-  # Skip comments and blank lines
-  [[ "${child_name}" =~ ^#.*$ || -z "${child_name}" ]] && continue
+for src in "${src_dir}"/*.ecf; do
+  [[ -f "${src}" ]] || continue
+  cp -f "${src}" "${ecf_dir}/"
+  ((count++)) || true
+done
 
-  src="${src_dir}/${source_name}.ecf"
-  dest="${ecf_dir}/${child_name}.ecf"
-
-  if [[ ! -f "${src}" ]]; then
-    echo "[WARN] Source not found, skipping: ${src}" >&2
-    continue
-  fi
-
-  mkdir -p "$(dirname "${dest}")"
-  cp -f "${src}" "${dest}"
-  count=$((count + 1))
-done < "${manifest}"
-
-echo "[OK] Synced ${count} .ecf files to ${ecf_dir}"
+echo "[OK] Synced ${count} .ecf files from ${src_dir} to ${ecf_dir}"
