@@ -122,13 +122,13 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
         lines.append('')
 
-        # ── Cycle family (e.g. "2021032312") ─────────────────────────
+        # ── Cycle family (e.g. "12") ──────────────────────────────────
         sdate = self._base['SDATE_GFS']
-        cycle_str = sdate.strftime('%Y%m%d%H')
-        lines.append(f'{" " * indent}family {cycle_str}')
+        cyc = sdate.strftime('%H')
+        lines.append(f'{" " * indent}family {cyc}')
         indent = 6
         lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
-        lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
+        lines.append(f'{" " * indent}edit CYC \'{cyc}\'')
         lines.append('')
 
         # Emit tasks from the tasks object
