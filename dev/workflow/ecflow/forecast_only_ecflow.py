@@ -102,7 +102,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             os.environ.get('ECF_FILES',
                            os.path.join(self.HOMEglobal, 'dev', 'ecflow',
                                         'scripts')))
-        self._copy_map: Dict[str, str] = {}
+        self._copy_map: List = []
 
         # Fetch all task dicts
         all_tasks: List[Dict] = []
@@ -265,7 +265,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             # Emit segment sub-tasks directly inside the member family.
             for seg in range(num_segments):
                 seg_name = f'seg{seg}'
-                self._copy_map[seg_name] = 'fcst'
+                self._copy_map.append((seg_name, 'fcst'))
                 lines.append(f'{msp}task {seg_name}')
                 lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
                 if seg > 0:
@@ -335,7 +335,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 lines += self._emit_product_children(td_copy, indent + 4)
             else:
                 # Simple per-member task.
-                self._copy_map[task_name] = task_name
+                self._copy_map.append((task_name, task_name))
                 lines.append(f'{msp}task {task_name}')
                 lines.append(f"{tsp}edit TASK '{task_name}'")
                 lines += self._resource_edits(
@@ -370,7 +370,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines = []
         lines += self._resource_edits(res, sp, skip_walltime=True)
-        lines.append(f"{sp}edit JJOB '{task_dict['jjob']}'")
         lines.append(f"{sp}# {len(fhrs)} forecast hours in {ngroups} groups")
         lines.append('')
 
@@ -380,7 +379,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = 'product'
+            self._copy_map.append((label, task_name))
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -469,7 +468,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         res = task_dict['resources']
         trigger = task_dict.get('trigger')
 
-        self._copy_map[task_name] = task_name
+        self._copy_map.append((task_name, task_name))
 
         lines = [f'{sp}task {task_name}',
                  f"{tsp}edit TASK '{task_name}'"]
@@ -500,7 +499,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         for seg in range(num_segments):
             seg_name = f'seg{seg}'
-            self._copy_map[seg_name] = task_name
+            self._copy_map.append((seg_name, task_name))
             lines.append(f'{fsp}task {seg_name}')
             lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
             if seg > 0:
@@ -530,7 +529,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines = [f'{sp}family {task_name}',
                  f"{fsp}edit TASK '{task_name}'",
-                 f"{fsp}edit JJOB '{task_dict['jjob']}'",
                  f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups"]
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
@@ -543,7 +541,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = 'product'
+            self._copy_map.append((label, task_name))
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -587,7 +585,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     # ── ecf_scripts management ────────────────────────────────────────
 
     def _create_ecf_scripts(self) -> None:
-        """Populate the ECF_FILES directory with .ecf copies."""
+        """Populate the ECF_FILES directory with .ecf scripts.
+
+        Copies all source .ecf files by original name, then creates
+        per-task copies.  When multiple product families share a task
+        name (e.g. f000), creates per-family subdirectories so ecFlow's
+        hierarchical lookup resolves the correct .ecf.
+        """
         scripts_dir = self._ecf_scripts_dir
         src_dir = self._ecf_src_dir
 
@@ -597,27 +601,44 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         scripts_dir.mkdir(parents=True)
 
         import shutil
-        skipped = []
-        for dest_name, src_name in self._copy_map.items():
-            dest = scripts_dir / f'{dest_name}.ecf'
-            src = src_dir / f'{src_name}.ecf'
-            if not src.is_file():
-                skipped.append(f'{src_name}.ecf')
-                continue
-            shutil.copy2(str(src), str(dest))
+        from collections import defaultdict
 
+        # Copy all source .ecf files by original name at top level.
+        for src in sorted(src_dir.glob('*.ecf')):
+            shutil.copy2(str(src), str(scripts_dir / src.name))
+
+        # Group copy map entries by task name to detect collisions.
+        by_task: dict = defaultdict(set)
+        for dest_name, src_name in self._copy_map:
+            by_task[dest_name].add(src_name)
+
+        for dest_name, src_names in by_task.items():
+            if len(src_names) == 1:
+                # Unique task name — create a flat copy.
+                src_name = next(iter(src_names))
+                src = src_dir / f'{src_name}.ecf'
+                dest = scripts_dir / f'{dest_name}.ecf'
+                if src.is_file() and not dest.exists():
+                    shutil.copy2(str(src), str(dest))
+            else:
+                # Multiple sources share this task name — create
+                # per-family subdirectories for ecFlow's hierarchical
+                # lookup (e.g. atmos_prod/f000.ecf).
+                for src_name in src_names:
+                    src = src_dir / f'{src_name}.ecf'
+                    if not src.is_file():
+                        continue
+                    family_dir = scripts_dir / src_name
+                    family_dir.mkdir(exist_ok=True)
+                    shutil.copy2(str(src),
+                                 str(family_dir / f'{dest_name}.ecf'))
+
+        # Write manifest recording the source directory for sync.
         manifest = scripts_dir / 'ecf_scripts.manifest'
         with open(manifest, 'w') as fh:
             fh.write(f'# ECF_SRC_DIR={self._ecf_src_dir}\n')
-            for dest_name, src_name in sorted(self._copy_map.items()):
-                fh.write(f'{dest_name}\t{src_name}\n')
 
-        copied = len(self._copy_map) - len(skipped)
-        logger.info(f'Copied {copied} .ecf files to {scripts_dir}')
-        if skipped:
-            unique = sorted(set(skipped))
-            logger.warning(
-                f'Missing source .ecf (skipped): {", ".join(unique)}')
+        logger.info(f'Populated {scripts_dir} with .ecf files')
 
     # ── Suite-level variables ─────────────────────────────────────────
 
