@@ -23,7 +23,7 @@
 # The script prints the Slurm job ID to stdout (required by ecFlow
 # for ECF_RID).  Any diagnostic output goes to stderr.
 
-set -eu
+set -e
 
 TASK="${1:?ecf_sbatch.sh: missing TASK argument}"
 EXPDIR="${2:?ecf_sbatch.sh: missing EXPDIR argument}"
@@ -33,7 +33,7 @@ JOB_SCRIPT="${4:?ecf_sbatch.sh: missing ECF_JOB argument}"
 # ── Source config.base for machine, CASE, RUN, ACCOUNT, etc. ─────
 # config.base also references runtime variables (PDY, cyc) that are
 # not needed for resource computation — provide stubs so sourcing
-# succeeds under set -eu.
+# succeeds under set -e.
 export PDY="${PDY:-20210323}"
 export cyc="${cyc:-00}"
 if [[ ! -f "${EXPDIR}/config.base" ]]; then
@@ -51,7 +51,13 @@ if [[ ! -f "${EXPDIR}/config.resources" ]]; then
 fi
 
 # config.resources sets: walltime, ntasks, tasks_per_node,
-# threads_per_task, memory, is_exclusive, prepost
+# threads_per_task, memory, is_exclusive, prepost.
+# The fcst step depends on variables from config.fcst (via config.ufs)
+# that are not in config.base — source the task config chain first.
+if [[ "${TASK}" == "fcst" && -f "${EXPDIR}/config.fcst" ]]; then
+  # shellcheck disable=SC1090,SC1091
+  source "${EXPDIR}/config.fcst"
+fi
 # shellcheck disable=SC1090,SC1091
 source "${EXPDIR}/config.resources" "${TASK}"
 
