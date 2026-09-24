@@ -8,10 +8,10 @@
 # out of the .def file and out of the .ecf scripts.
 #
 # Usage (set as ECF_JOB_CMD in the .def):
-#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %TASK% %EXPDIR% %ECF_JOBOUT% %ECF_JOB%'
+#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %STEP% %EXPDIR% %ECF_JOBOUT% %ECF_JOB%'
 #
 # Arguments:
-#   $1 — TASK      : config.resources step name (e.g. fcst, atmos_products)
+#   $1 — STEP     : config.resources step name (e.g. fcst, atmos_products)
 #   $2 — EXPDIR    : experiment directory containing config.base / config.resources
 #   $3 — ECF_JOBOUT: job output path
 #   $4 — ECF_JOB   : path to the preprocessed job script (.ecf → .job)
@@ -25,7 +25,7 @@
 
 set -e
 
-TASK="${1:?ecf_sbatch.sh: missing TASK argument}"
+STEP="${1:?ecf_sbatch.sh: missing STEP argument}"
 EXPDIR="${2:?ecf_sbatch.sh: missing EXPDIR argument}"
 _ECF_JOBOUT="${3:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
 JOB_SCRIPT="${4:?ecf_sbatch.sh: missing ECF_JOB argument}"
@@ -54,12 +54,12 @@ fi
 # threads_per_task, memory, is_exclusive, prepost.
 # The fcst step depends on variables from config.fcst (via config.ufs)
 # that are not in config.base — source the task config chain first.
-if [[ "${TASK}" == "fcst" && -f "${EXPDIR}/config.fcst" ]]; then
+if [[ "${STEP}" == "fcst" && -f "${EXPDIR}/config.fcst" ]]; then
   # shellcheck disable=SC1090,SC1091
   source "${EXPDIR}/config.fcst"
 fi
 # shellcheck disable=SC1090,SC1091
-source "${EXPDIR}/config.resources" "${TASK}"
+source "${EXPDIR}/config.resources" "${STEP}"
 
 # ── Resolve ACCOUNT ───────────────────────────────────────────────
 # ACCOUNT comes from config.base; fall back to HPC_ACCOUNT.
@@ -71,7 +71,7 @@ fi
 nodes=$(( (ntasks + tasks_per_node - 1) / tasks_per_node ))
 
 sbatch_flags=(
-  --job-name="${RUN:-gfs}_${TASK}_${cyc:-00}"
+  --job-name="${RUN:-gfs}_${STEP}_${cyc:-00}"
   --account="${ACCOUNT}"
   --partition="${PARTITION_BATCH}"
   --time="${walltime}"

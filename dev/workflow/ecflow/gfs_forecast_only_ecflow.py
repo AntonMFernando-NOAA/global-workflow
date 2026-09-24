@@ -202,7 +202,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         self._copy_map[task_name] = task_name
 
         lines.append(f'{sp}task {task_name}')
-        lines.append(f"{tsp}edit TASK '{task_name}'")
+        lines.append(f"{tsp}edit STEP '{task_dict['step']}'")
 
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
@@ -227,7 +227,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         # Family wrapping all forecast-hour groups
         lines.append(f'{sp}family {task_name}')
-        lines.append(f"{fsp}edit TASK '{task_name}'")
+        lines.append(f"{fsp}edit STEP '{task_dict['step']}'")
         lines.append(f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups")
 
         if trigger:
@@ -334,7 +334,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}# Slurm job submission via ecf_sbatch.sh wrapper")
         ecf_sbatch = os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'utils',
                                   'ecf_sbatch.sh')
-        lines.append(f"{sp}edit ECF_JOB_CMD  '{ecf_sbatch} %TASK% %EXPDIR% %ECF_JOBOUT% %ECF_JOB%'")
+        lines.append(f"{sp}edit ECF_JOB_CMD  '{ecf_sbatch} %STEP% %EXPDIR% %ECF_JOBOUT% %ECF_JOB%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
         lines.append(f"{sp}")
