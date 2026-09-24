@@ -8,32 +8,32 @@
 # out of the .def file and out of the .ecf scripts.
 #
 # Usage (set as ECF_JOB_CMD in the .def):
-#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %ECF_JOB% %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT%'
+#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT% %ECF_JOB%'
 #
 # Arguments:
-#   $1 — ECF_JOB   : path to the preprocessed job script (.ecf → .job)
-#   $2 — TASK      : config.resources step name (e.g. fcst, atmos_products)
-#   $3 — EXPDIR    : experiment directory containing config.base / config.resources
-#   $4 — ACCOUNT   : Slurm account
-#   $5 — QUEUE     : Slurm partition
-#   $6 — ECF_JOBOUT: job output path
+#   $1 — TASK      : config.resources step name (e.g. fcst, atmos_products)
+#   $2 — EXPDIR    : experiment directory containing config.base / config.resources
+#   $3 — ACCOUNT   : Slurm account
+#   $4 — QUEUE     : Slurm partition
+#   $5 — ECF_JOBOUT: job output path
+#   $6 — ECF_JOB   : path to the preprocessed job script (.ecf → .job)
 #
 # The script prints the Slurm job ID to stdout (required by ecFlow
 # for ECF_RID).  Any diagnostic output goes to stderr.
 
 set -eu
 
-JOB_SCRIPT="${1:?ecf_sbatch.sh: missing ECF_JOB argument}"
-TASK="${2:?ecf_sbatch.sh: missing TASK argument}"
-EXPDIR="${3:?ecf_sbatch.sh: missing EXPDIR argument}"
-ACCOUNT="${4:?ecf_sbatch.sh: missing ACCOUNT argument}"
-QUEUE="${5:?ecf_sbatch.sh: missing QUEUE argument}"
-ECF_JOBOUT="${6:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
+TASK="${1:?ecf_sbatch.sh: missing TASK argument}"
+EXPDIR="${2:?ecf_sbatch.sh: missing EXPDIR argument}"
+ACCOUNT="${3:?ecf_sbatch.sh: missing ACCOUNT argument}"
+QUEUE="${4:?ecf_sbatch.sh: missing QUEUE argument}"
+ECF_JOBOUT="${5:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
+JOB_SCRIPT="${6:?ecf_sbatch.sh: missing ECF_JOB argument}"
 
 # ── Source config.base for machine, CASE, RUN, etc. ──────────────
 # config.resources reads machine, CASE, RUN, and resolution variables
 # that config.base provides.  config.base also references runtime
-# variables (PDY, cyc) that J-Jobs normally set before sourcing —
+# variables (PDY, cyc) that are not needed for resource computation —
 # provide stubs so sourcing succeeds under set -eu.
 export PDY="${PDY:-20210323}"
 export cyc="${cyc:-00}"

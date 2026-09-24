@@ -334,7 +334,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}# Slurm job submission via ecf_sbatch.sh wrapper")
         ecf_sbatch = os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'utils',
                                   'ecf_sbatch.sh')
-        lines.append(f"{sp}edit ECF_JOB_CMD  '{ecf_sbatch} %ECF_JOB% %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT%'")
+        lines.append(f"{sp}edit ECF_JOB_CMD  '{ecf_sbatch} %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT% %ECF_JOB%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
         lines.append(f"{sp}")
