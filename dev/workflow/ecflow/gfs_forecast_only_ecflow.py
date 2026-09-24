@@ -155,6 +155,22 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         logger.info(f'ecFlow suite definition written to {def_file}')
 
+        # Create ECF_HOME subdirectories matching the suite tree so
+        # ecFlow can write .job files before ECF_JOB_CMD runs.
+        rotdir = self._base.get(
+            'ROTDIR',
+            os.path.join(str(self._base.get('COMROOT', '/tmp')), self.pslot))
+        ecf_home = os.path.join(rotdir, 'logs')
+        sdate = self._base['SDATE_GFS']
+        cycle_str = sdate.strftime('%Y%m%d%H')
+        job_dir = os.path.join(ecf_home, suite_name, cycle_str, self._run)
+        os.makedirs(job_dir, exist_ok=True)
+        # Product families create a subdirectory per family
+        for task_name in self._task_names:
+            td = self._tasks.get_ecflow_task(task_name)
+            if td['product_task']:
+                os.makedirs(os.path.join(job_dir, task_name), exist_ok=True)
+
         # Create the ecf_scripts directory with copies
         self._create_ecf_scripts()
 
