@@ -379,7 +379,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = task_name
+            self._copy_map[f'{task_name}/{label}'] = task_name
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -541,7 +541,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map[label] = task_name
+            self._copy_map[f'{task_name}/{label}'] = task_name
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
@@ -590,16 +590,15 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         src_dir = self._ecf_src_dir
 
         if scripts_dir.exists():
-            for f in scripts_dir.iterdir():
-                if f.is_symlink() or f.is_file():
-                    f.unlink()
-        else:
-            scripts_dir.mkdir(parents=True)
+            import shutil as _shutil
+            _shutil.rmtree(scripts_dir)
+        scripts_dir.mkdir(parents=True)
 
         import shutil
         skipped = []
         for dest_name, src_name in self._copy_map.items():
             dest = scripts_dir / f'{dest_name}.ecf'
+            dest.parent.mkdir(parents=True, exist_ok=True)
             src = src_dir / f'{src_name}.ecf'
             if not src.is_file():
                 skipped.append(f'{src_name}.ecf')
