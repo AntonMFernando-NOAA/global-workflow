@@ -1,4 +1,3 @@
-%include <slurm.h>
 %include <head.h>
 %include <envir.h>
 

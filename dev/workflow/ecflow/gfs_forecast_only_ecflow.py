@@ -3,29 +3,28 @@
 """
 GFS forecast-only ecFlow suite generator.
 
-Generates a complete ``.def`` file from the same ``AppConfig`` and task/resource
-data that the Rocoto XML generator uses.  The output is self-contained: every
-ecFlow edit variable (ECF_HOME, ACCOUNT, QUEUE, per-task WALLTIME, etc.) is
-baked into the definition so that ``ecflow_client --load`` works with **no**
-subsequent ``--alter`` overrides.
+Generates a complete ``.def`` file from the same ``AppConfig`` and task
+data that the Rocoto XML generator uses.  The output defines workflow
+structure (families, tasks, triggers, edit variables for paths and
+identity); Slurm resource allocation is handled at submission time by
+``ecf_sbatch.sh``, which sources the same ``config.resources`` files
+Rocoto uses.
 
-Task metadata (triggers, resources, J-Job mapping, product-task flags) comes
+Task metadata (triggers, J-Job mapping, product-task flags) comes
 from the ``EcFlowTasks`` hierarchy (mirroring ``rocoto/gfs_tasks.py``),
 instantiated via ``ecflow_tasks_factory``.  This suite generator is a pure
 consumer — it iterates the task list, fetches each task dict, and renders
 it into the ``.def`` format.
 """
 
-import math
 import os
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from ecflow.ecflow_suite import EcFlowSuite
 from ecflow.ecflow_tasks_factory import ecflow_tasks_factory
 from applications.applications import AppConfig
-from rocoto.tasks import Tasks
 from wxflow import timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
@@ -36,8 +35,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
     ecFlow suite generator for GFS forecast-only workflows.
 
     Produces a ``.def`` file that mirrors the Rocoto XML for the same
-    ``AppConfig``.  All variables are baked into the definition so the
-    bootstrap script can simply::
+    ``AppConfig``.  Workflow variables (paths, identity, cycle info) are
+    baked in; Slurm resources are resolved at submission time by
+    ``ecf_sbatch.sh``.  The bootstrap sequence is::
 
         ecflow_client --load=<path>.def
         ecflow_client --begin=<suite_name>
@@ -180,7 +180,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines = []
 
         task_name = task_dict['task_name']
-        res = task_dict['resources']
         trigger = task_dict['trigger']
 
         # Register in the copy map
@@ -188,8 +187,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines.append(f'{sp}task {task_name}')
         lines.append(f"{tsp}edit TASK '{task_name}'")
-
-        lines += self._resource_edits(res, tsp)
 
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
@@ -204,7 +201,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines = []
 
         task_name = task_dict['task_name']
-        res = task_dict['resources']
         trigger = task_dict['trigger']
         fhrs = task_dict['forecast_hours']
         config_name = task_dict['config']
@@ -212,8 +208,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         max_tasks = self._configs.get(config_name, {}).get('MAX_TASKS', 25)
         ngroups = min(max_tasks, len(fhrs))
         groups = self._group_fhrs(fhrs, ngroups)
-
-        base_walltime = res.get('walltime', '00:15:00')
 
         # Family wrapping all forecast-hour groups
         lines.append(f'{sp}family {task_name}')
@@ -223,8 +217,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
 
-        # Shared resource defaults at family level
-        lines += self._resource_edits(res, fsp, skip_walltime=True)
         lines.append('')
 
         # One child task per forecast-hour group
@@ -237,42 +229,12 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             self._copy_map[label] = task_name
 
             fhr_list_str = ','.join(str(f) for f in grp)
-            grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
 
             lines.append(f'{fsp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
-            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
             lines.append('')
 
         lines.append(f'{sp}endfamily')
-
-        return lines
-
-    def _resource_edits(self, res: Dict, indent_str: str, *,
-                        skip_walltime: bool = False) -> List[str]:
-        """Emit per-task resource edit lines from a resource dict."""
-        lines = []
-
-        walltime = res.get('walltime', '00:30:00')
-        nodes = res.get('nodes', 1)
-        ppn = res.get('ppn', 1)
-        threads = res.get('threads', 1)
-        partition = res.get('partition')
-        native = res.get('native', '')
-        is_exclusive = native and '--exclusive' in str(native)
-
-        if not skip_walltime:
-            lines.append(f"{indent_str}edit WALLTIME '{walltime}'")
-        if nodes > 1:
-            lines.append(f"{indent_str}edit NODES '{nodes}'")
-        if ppn > 1:
-            lines.append(f"{indent_str}edit NTASKS '{ppn}'")
-        if threads > 1:
-            lines.append(f"{indent_str}edit CPUS_PER_TASK '{threads}'")
-        if partition and partition != self._base.get('PARTITION_BATCH'):
-            lines.append(f"{indent_str}edit QUEUE '{partition}'")
-        if is_exclusive:
-            lines.append(f"{indent_str}edit EXCLUSIVE 'YES'")
 
         return lines
 
@@ -353,8 +315,10 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
-        lines.append(f"{sp}# Slurm job submission commands")
-        lines.append(f"{sp}edit ECF_JOB_CMD  'sbatch %ECF_JOB%'")
+        lines.append(f"{sp}# Slurm job submission via ecf_sbatch.sh wrapper")
+        ecf_sbatch = os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'utils',
+                                  'ecf_sbatch.sh')
+        lines.append(f"{sp}edit ECF_JOB_CMD  '{ecf_sbatch} %ECF_JOB% %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
         lines.append(f"{sp}")
@@ -386,13 +350,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         dataroot = f"{base.get('STMP', '/tmp')}/RUNDIRS/{self.pslot}"
         lines.append(f"{sp}edit DATAROOT   '{dataroot}'")
         lines.append(f"{sp}")
-
-        lines.append(f"{sp}# Slurm resource defaults (overridden per-task)")
-        lines.append(f"{sp}edit WALLTIME '00:30:00'")
-        lines.append(f"{sp}edit NODES    '1'")
-        lines.append(f"{sp}edit NTASKS   '1'")
-        lines.append(f"{sp}edit CPUS_PER_TASK '1'")
-        lines.append(f"{sp}edit EXCLUSIVE 'NO'")
 
         return lines
 
