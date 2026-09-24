@@ -78,5 +78,8 @@ if [[ "${is_exclusive:-False}" == "True" ]]; then
 fi
 
 # ── Submit ────────────────────────────────────────────────────────
+# Ensure the job output directory exists
+mkdir -p "$(dirname "${ECF_JOBOUT}")"
+
 # sbatch prints the job ID to stdout; ecFlow captures it as ECF_RID.
 exec sbatch "${sbatch_flags[@]}" "${JOB_SCRIPT}"
