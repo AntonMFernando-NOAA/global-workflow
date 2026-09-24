@@ -307,6 +307,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         if is_product:
             lines.append(f"{fsp}edit TASK '{task_name}'")
+            # Scope ECF_FILES to the per-family subdirectory so
+            # prune_root resolves memNNN/fXXX → <task_name>/fXXX.ecf.
+            ecf_subdir = str(self._ecf_scripts_dir / task_name)
+            lines.append(f"{fsp}edit ECF_FILES '{ecf_subdir}'")
 
         lines.append('')
 
@@ -587,10 +591,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _create_ecf_scripts(self) -> None:
         """Populate the ECF_FILES directory with .ecf scripts.
 
-        Copies all source .ecf files by original name, then creates
-        per-task copies.  When multiple product families share a task
-        name (e.g. f000), creates per-family subdirectories so ecFlow's
-        hierarchical lookup resolves the correct .ecf.
+        Copies all source .ecf files by original name at the top level,
+        then processes the copy map.  Entries where src and dest differ
+        (product families) get per-family subdirectories (e.g.
+        ``atmos_prod/f000.ecf``) so per-family ECF_FILES overrides
+        resolve them via prune_root.
         """
         scripts_dir = self._ecf_scripts_dir
         src_dir = self._ecf_src_dir
@@ -607,27 +612,25 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         for src in sorted(src_dir.glob('*.ecf')):
             shutil.copy2(str(src), str(scripts_dir / src.name))
 
-        # Group copy map entries by task name to detect collisions.
+        # Group copy map entries by dest (task label) to detect collisions,
+        # and collect every src that needs a subdirectory.
         by_task: dict = defaultdict(set)
         for dest_name, src_name in self._copy_map:
             by_task[dest_name].add(src_name)
 
         for dest_name, src_names in by_task.items():
-            if len(src_names) == 1:
-                # Unique task name — create a flat copy.
-                src_name = next(iter(src_names))
+            for src_name in src_names:
                 src = src_dir / f'{src_name}.ecf'
-                dest = scripts_dir / f'{dest_name}.ecf'
-                if src.is_file() and not dest.exists():
-                    shutil.copy2(str(src), str(dest))
-            else:
-                # Multiple sources share this task name — create
-                # per-family subdirectories for ecFlow's hierarchical
-                # lookup (e.g. atmos_prod/f000.ecf).
-                for src_name in src_names:
-                    src = src_dir / f'{src_name}.ecf'
-                    if not src.is_file():
-                        continue
+                if not src.is_file():
+                    continue
+                if src_name == dest_name:
+                    # Same name — flat copy at top level.
+                    dest = scripts_dir / f'{dest_name}.ecf'
+                    if not dest.exists():
+                        shutil.copy2(str(src), str(dest))
+                else:
+                    # Different name — per-family subdirectory so
+                    # ECF_FILES scoped to <family> resolves the label.
                     family_dir = scripts_dir / src_name
                     family_dir.mkdir(exist_ok=True)
                     shutil.copy2(str(src),
@@ -669,7 +672,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
-        lines.append(f"{sp}edit ECF_FILES_LOOKUP 'prune_leaf'")
         lines.append(
             f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
