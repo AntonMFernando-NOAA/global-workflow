@@ -115,20 +115,20 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._suite_variables(indent=2)
         lines.append('')
 
-        # ── RUN family (e.g. "gfs") ──────────────────────────────────
+        # ── Cycle family (e.g. "2021032312") ─────────────────────────
         indent = 2
-        lines.append(f'{" " * indent}family {self._run}')
+        sdate = self._base['SDATE_GFS']
+        cycle_str = sdate.strftime('%Y%m%d%H')
+        lines.append(f'{" " * indent}family {cycle_str}')
         indent = 4
-        lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
+        lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
+        lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
         lines.append('')
 
-        # ── Cycle family (e.g. "12") ──────────────────────────────────
-        sdate = self._base['SDATE_GFS']
-        cyc = sdate.strftime('%H')
-        lines.append(f'{" " * indent}family {cyc}')
+        # ── RUN family (e.g. "gfs") ──────────────────────────────────
+        lines.append(f'{" " * indent}family {self._run}')
         indent = 6
-        lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
-        lines.append(f'{" " * indent}edit CYC \'{cyc}\'')
+        lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
         lines.append('')
 
         # Emit tasks from the tasks object
