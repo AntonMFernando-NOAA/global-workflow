@@ -60,6 +60,10 @@ source "${EXPDIR}/config.resources" "${TASK}"
 nodes=$(( (ntasks + tasks_per_node - 1) / tasks_per_node ))
 
 # Build sbatch flags
+# ACCOUNT may be UNDEFINED in config.base; fall back to HPC_ACCOUNT.
+if [[ "${ACCOUNT}" == "UNDEFINED" || -z "${ACCOUNT}" ]]; then
+  ACCOUNT="${HPC_ACCOUNT:?ecf_sbatch.sh: ACCOUNT is UNDEFINED and HPC_ACCOUNT is not set}"
+fi
 sbatch_flags=(
   --job-name="${RUN:-gfs}_${TASK}_${cyc:-00}"
   --account="${ACCOUNT}"
