@@ -35,7 +35,7 @@ ECF_JOBOUT="${6:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
 # that config.base provides.  config.base also references runtime
 # variables (PDY, cyc) that J-Jobs normally set before sourcing —
 # provide stubs so sourcing succeeds under set -eu.
-export PDY="${PDY:-19000101}"
+export PDY="${PDY:-20210323}"
 export cyc="${cyc:-00}"
 if [[ ! -f "${EXPDIR}/config.base" ]]; then
   echo "ecf_sbatch.sh: config.base not found in ${EXPDIR}" >&2
