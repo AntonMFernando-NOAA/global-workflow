@@ -8,15 +8,17 @@
 # out of the .def file and out of the .ecf scripts.
 #
 # Usage (set as ECF_JOB_CMD in the .def):
-#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %TASK% %EXPDIR% %ACCOUNT% %QUEUE% %ECF_JOBOUT% %ECF_JOB%'
+#   edit ECF_JOB_CMD  '<HOMEglobal>/dev/ecflow/utils/ecf_sbatch.sh %TASK% %EXPDIR% %ECF_JOBOUT% %ECF_JOB%'
 #
 # Arguments:
 #   $1 — TASK      : config.resources step name (e.g. fcst, atmos_products)
 #   $2 — EXPDIR    : experiment directory containing config.base / config.resources
-#   $3 — ACCOUNT   : Slurm account
-#   $4 — QUEUE     : Slurm partition
-#   $5 — ECF_JOBOUT: job output path
-#   $6 — ECF_JOB   : path to the preprocessed job script (.ecf → .job)
+#   $3 — ECF_JOBOUT: job output path
+#   $4 — ECF_JOB   : path to the preprocessed job script (.ecf → .job)
+#
+# ACCOUNT and PARTITION are read from config.base (platform-aware),
+# not passed as arguments.  ACCOUNT falls back to HPC_ACCOUNT if
+# config.base has UNDEFINED.
 #
 # The script prints the Slurm job ID to stdout (required by ecFlow
 # for ECF_RID).  Any diagnostic output goes to stderr.
@@ -25,16 +27,13 @@ set -eu
 
 TASK="${1:?ecf_sbatch.sh: missing TASK argument}"
 EXPDIR="${2:?ecf_sbatch.sh: missing EXPDIR argument}"
-ACCOUNT="${3:?ecf_sbatch.sh: missing ACCOUNT argument}"
-QUEUE="${4:?ecf_sbatch.sh: missing QUEUE argument}"
-ECF_JOBOUT="${5:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
-JOB_SCRIPT="${6:?ecf_sbatch.sh: missing ECF_JOB argument}"
+_ECF_JOBOUT="${3:?ecf_sbatch.sh: missing ECF_JOBOUT argument}"
+JOB_SCRIPT="${4:?ecf_sbatch.sh: missing ECF_JOB argument}"
 
-# ── Source config.base for machine, CASE, RUN, etc. ──────────────
-# config.resources reads machine, CASE, RUN, and resolution variables
-# that config.base provides.  config.base also references runtime
-# variables (PDY, cyc) that are not needed for resource computation —
-# provide stubs so sourcing succeeds under set -eu.
+# ── Source config.base for machine, CASE, RUN, ACCOUNT, etc. ─────
+# config.base also references runtime variables (PDY, cyc) that are
+# not needed for resource computation — provide stubs so sourcing
+# succeeds under set -eu.
 export PDY="${PDY:-20210323}"
 export cyc="${cyc:-00}"
 if [[ ! -f "${EXPDIR}/config.base" ]]; then
@@ -56,34 +55,33 @@ fi
 # shellcheck disable=SC1090,SC1091
 source "${EXPDIR}/config.resources" "${TASK}"
 
+# ── Resolve ACCOUNT ───────────────────────────────────────────────
+# ACCOUNT comes from config.base; fall back to HPC_ACCOUNT.
+if [[ "${ACCOUNT:-UNDEFINED}" == "UNDEFINED" ]]; then
+  ACCOUNT="${HPC_ACCOUNT:?ecf_sbatch.sh: ACCOUNT is UNDEFINED and HPC_ACCOUNT is not set}"
+fi
+
 # ── Compute derived values ────────────────────────────────────────
 nodes=$(( (ntasks + tasks_per_node - 1) / tasks_per_node ))
 
-# Build sbatch flags
-# ACCOUNT may be UNDEFINED in config.base; fall back to HPC_ACCOUNT.
-if [[ "${ACCOUNT}" == "UNDEFINED" || -z "${ACCOUNT}" ]]; then
-  ACCOUNT="${HPC_ACCOUNT:?ecf_sbatch.sh: ACCOUNT is UNDEFINED and HPC_ACCOUNT is not set}"
-fi
 sbatch_flags=(
   --job-name="${RUN:-gfs}_${TASK}_${cyc:-00}"
   --account="${ACCOUNT}"
-  --partition="${QUEUE}"
+  --partition="${PARTITION_BATCH}"
   --time="${walltime}"
   --nodes="${nodes}"
   --ntasks-per-node="${tasks_per_node}"
   --cpus-per-task="${threads_per_task}"
-  --output="${ECF_JOBOUT}"
+  --output="${_ECF_JOBOUT}"
   --export=NONE
 )
 
-# Exclusive mode
 if [[ "${is_exclusive:-False}" == "True" ]]; then
   sbatch_flags+=(--exclusive)
 fi
 
 # ── Submit ────────────────────────────────────────────────────────
-# Ensure the job output directory exists
-mkdir -p "$(dirname "${ECF_JOBOUT}")"
+mkdir -p "$(dirname "${_ECF_JOBOUT}")"
 
 # sbatch prints the job ID to stdout; ecFlow captures it as ECF_RID.
 exec sbatch "${sbatch_flags[@]}" "${JOB_SCRIPT}"
