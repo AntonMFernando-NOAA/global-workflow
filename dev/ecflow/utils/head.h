@@ -1,3 +1,4 @@
+#!/bin/bash
 date
 hostname
 set -xe
