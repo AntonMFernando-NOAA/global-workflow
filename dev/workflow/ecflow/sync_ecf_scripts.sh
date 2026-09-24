@@ -58,7 +58,7 @@ while IFS=$'\t' read -r child_name source_name; do
     continue
   fi
 
-  cp "${src}" "${dest}"
+  cp -f "${src}" "${dest}"
   count=$((count + 1))
 done < "${manifest}"
 
