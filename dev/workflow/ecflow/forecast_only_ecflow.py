@@ -669,6 +669,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
+        lines.append(f"{sp}edit ECF_FILES_LOOKUP 'prune_leaf'")
         lines.append(
             f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
