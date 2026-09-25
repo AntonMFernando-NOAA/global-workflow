@@ -77,7 +77,16 @@ module load ecflow
 unset ECF_HOSTFILE
 
 # ── Step 1b: Set the global-workflow repo path ───────────────────
+# Point this to wherever you cloned the repo.  The loader script
+# auto-detects HOMEglobal from its own location, but ecFlow tasks
+# read it from the environment during validation.
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
+
+# ── Step 1b-workaround: Machine detection on ufe nodes ───────────
+# The mount-based auto-detection in hosts.py may misidentify some
+# Ursa front-end nodes (e.g. ufe12) as Hera.  If you hit unexpected
+# platform errors, force the machine identity:
+export MACHINE_ID=URSA
 
 # ── Step 1c: Choose an ecFlow server ─────────────────────────────
 # Each user runs their own ecFlow server on a unique port.
@@ -178,9 +187,7 @@ unset ECF_HOSTFILE
 export ECF_PORT=$(( $(id -u) + 1500 ))
 export ECF_HOST=$(hostname)
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
-export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
-
-# 3. Verify the server is alive
+export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow  # adjust to your clone path
 ecflow_client --ping
 ```
 
