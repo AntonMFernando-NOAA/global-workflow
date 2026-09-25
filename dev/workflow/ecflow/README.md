@@ -115,41 +115,28 @@ ecflow_client --ping   # should say "ping ... succeeded"
 
 ### Check if a server is already running
 
+From any login node, check if your server on `uecflow01` is alive:
+
 ```bash
+export ECF_HOST=uecflow01
+export ECF_PORT=$(( $(id -u) + 1500 ))
 ecflow_client --ping
 ```
 
-If it responds with `ping server(...) succeeded`, the server is up.
-Skip to step 3.
+If it responds with `ping server(...) succeeded`, skip to step 3.
+If it fails, start or restart the server (see below).
 
-### Find your server port
+### Start the server (first time)
 
-If someone gave you a server to use, they will have given you the
-host and port. Otherwise:
-
-```bash
-# See if you already have a server running under your user
-ecflow_client --host=$(hostname) --port=${ECF_PORT} --ping
-
-# Or check all ecflow_server processes on this host
-ps -u ${USER} -f | grep ecflow_server
-# Output shows: ecflow_server --port=23385 --ecf_home=...
-# The --port value is your ECF_PORT
-```
-
-### Start your own server from scratch
-
-The ecFlow server must run on the dedicated ecFlow node (`uecflow01`),
-not on a regular login node.
+The ecFlow server must run on the dedicated node `uecflow01`.
 
 ```bash
-# 1. SSH into the ecFlow node from a login node
+# 1. SSH into the ecFlow node
 ssh uecflow01
 
-# 2. Pick a port unique to you (UID + 1500 avoids collisions)
+# 2. Load ecflow and set your port
 module load ecflow
 export ECF_PORT=$(( $(id -u) + 1500 ))
-echo "Starting ecFlow server on port ${ECF_PORT}"
 
 # 3. Create the job directory
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
@@ -158,19 +145,46 @@ mkdir -p "${ECF_HOME}"
 # 4. Start the server
 ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
 
-# 5. Verify it's running
+# 5. Verify
 export ECF_HOST=uecflow01
 ecflow_client --ping
-# Expected: ping server(uecflow01:<port>) succeeded in 00:00:00.00...
 
-# 6. Save these values for future sessions
-echo "Add to your ~/.bashrc:"
-echo "  export ECF_HOST=uecflow01"
-echo "  export ECF_PORT=${ECF_PORT}"
-echo "  export ECF_HOME=${ECF_HOME}"
-
-# 7. Exit back to the login node — the server keeps running
+# 6. Exit back to your login node — the server keeps running
 exit
+```
+
+Your port is always `$(id -u) + 1500` — deterministic for your user,
+no need to remember it.
+
+### Restart a stopped server
+
+If the server was killed (node reboot, timeout, etc.), SSH back
+to `uecflow01` and restart it. Your suites and checkpoints are
+preserved in `ECF_HOME`.
+
+```bash
+ssh uecflow01
+module load ecflow
+export ECF_PORT=$(( $(id -u) + 1500 ))
+export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
+
+# Check if it's still running
+ps -u ${USER} -f | grep ecflow_server
+
+# If not running, restart
+ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
+
+# The server restores state from its checkpoint file.
+# Previously loaded suites reappear with their last known state.
+ecflow_client --ping
+exit
+```
+
+If a suite was mid-run when the server died, tasks that were
+`active` will show as `aborted` after restart. Requeue them:
+
+```bash
+ecflow_client --force=set /<suite>/<path_to_task> queued
 ```
 
 ### Stop the server (when completely done)
