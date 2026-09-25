@@ -92,7 +92,7 @@ export MACHINE_ID=URSA
 # Each user runs their own ecFlow server on a unique port.
 # Use your UID offset by 1500 to avoid collisions with other users:
 export ECF_PORT=$(( $(id -u) + 1500 ))
-export ECF_HOST=$(hostname)
+export ECF_HOST=uecflow01
 echo "Your ecFlow server: ${ECF_HOST}:${ECF_PORT}"
 
 # ── Step 1d: Set the ecFlow job directory ────────────────────────
@@ -139,28 +139,38 @@ ps -u ${USER} -f | grep ecflow_server
 
 ### Start your own server from scratch
 
+The ecFlow server must run on the dedicated ecFlow node (`uecflow01`),
+not on a regular login node.
+
 ```bash
-# 1. Pick a port unique to you (UID + 1500 avoids collisions)
+# 1. SSH into the ecFlow node from a login node
+ssh uecflow01
+
+# 2. Pick a port unique to you (UID + 1500 avoids collisions)
+module load ecflow
 export ECF_PORT=$(( $(id -u) + 1500 ))
 echo "Starting ecFlow server on port ${ECF_PORT}"
 
-# 2. Create the job directory
+# 3. Create the job directory
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
 mkdir -p "${ECF_HOME}"
 
-# 3. Start the server
+# 4. Start the server
 ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
 
-# 4. Verify it's running
-export ECF_HOST=$(hostname)
+# 5. Verify it's running
+export ECF_HOST=uecflow01
 ecflow_client --ping
-# Expected: ping server(<hostname>:<port>) succeeded in 00:00:00.00...
+# Expected: ping server(uecflow01:<port>) succeeded in 00:00:00.00...
 
-# 5. Save these values for future sessions
+# 6. Save these values for future sessions
 echo "Add to your ~/.bashrc:"
-echo "  export ECF_HOST=${ECF_HOST}"
+echo "  export ECF_HOST=uecflow01"
 echo "  export ECF_PORT=${ECF_PORT}"
 echo "  export ECF_HOME=${ECF_HOME}"
+
+# 7. Exit back to the login node — the server keeps running
+exit
 ```
 
 ### Stop the server (when completely done)
@@ -185,9 +195,11 @@ ssh -X <username>@ursa.rdhpcs.noaa.gov
 module load ecflow
 unset ECF_HOSTFILE
 export ECF_PORT=$(( $(id -u) + 1500 ))
-export ECF_HOST=$(hostname)
+export ECF_HOST=uecflow01
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow  # adjust to your clone path
+
+# 3. Verify the server is alive (must have been started on uecflow01)
 ecflow_client --ping
 ```
 
