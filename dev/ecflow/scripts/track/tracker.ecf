@@ -1,10 +1,10 @@
-%include <slurm.h>
+#!/bin/bash
+# shellcheck disable=SC1009,SC1072,SC1073
 %include <head.h>
 %include <envir.h>
 
 set -x
 
-# Paths and identity consumed by jjob_header.sh and the J-Job
 export HOMEglobal=%HOMEglobal%
 export EXPDIR=%EXPDIR%
 export COMROOT=%COMROOT%
@@ -22,10 +22,10 @@ if [[ ${status} -ne 0 ]]; then
   exit "${status}"
 fi
 
-export job="stage_ic"
+export job="tracker"
 export jobid="${job}.${SLURM_JOB_ID:-$$}"
 
-"${HOMEglobal}/dev/jobs/JGLOBAL_STAGE_IC"
+"${HOMEglobal}/dev/jobs/JGFS_ATMOS_CYCLONE_TRACKER"
 status=$?
 if [[ ${status} -ne 0 ]]; then
   ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT***"

@@ -58,7 +58,7 @@ xterm &    # a small terminal window should appear on your screen
 ```bash
 # Check you are on Ursa
 hostname
-# Expected: ulogin01 or similar
+# Expected: ufe01 or similar
 
 # Navigate to your workspace
 cd /scratch3/NCEPDEV/global/${USER}
@@ -79,14 +79,20 @@ module load ecflow
 # Remove any stale host file that might redirect ecflow_client
 unset ECF_HOSTFILE
 
-# ── Step 1c: Set the global-workflow repo path ───────────────────
+# ── Step 1b: Set the global-workflow repo path ───────────────────
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
+
+# ── Step 1b-workaround: Machine detection on ufe nodes ───────────
+# The mount-based auto-detection in hosts.py may misidentify some
+# Ursa front-end nodes (e.g. ufe12) as Hera.  If you hit unexpected
+# platform errors, force the machine identity:
+export MACHINE_ID=URSA
 
 # ── Step 1d: Choose an ecFlow server ─────────────────────────────
 # Each user runs their own ecFlow server on a unique port.
 # Use your UID offset by 1500 to avoid collisions with other users:
 export ECF_PORT=$(( $(id -u) + 1500 ))
-export ECF_HOST=$(hostname)
+export ECF_HOST=uecflow01
 echo "Your ecFlow server: ${ECF_HOST}:${ECF_PORT}"
 
 # ── Step 1e: Set the ecFlow job directory ────────────────────────
@@ -105,34 +111,63 @@ echo "HOMEglobal = ${HOMEglobal}"
 ecflow_client --ping   # should say "ping ... succeeded"
 ```
 
+If `ecflow_client --ping` fails, go to [section 2](#2-ecflow-server)
+to start the server first, then come back here.
+
 ## 2. ecFlow Server
 
 ### Check if a server is already running
 
+From any login node, check if your server on `uecflow01` is alive:
+
 ```bash
+export ECF_HOST=uecflow01
+export ECF_PORT=$(( $(id -u) + 1500 ))
 ecflow_client --ping
 ```
 
 If it responds with `ping server(...) succeeded`, the server is up.
 Skip to step 3.
 
+### Find your server port
+
+If someone gave you a server to use, they will have given you the
+host and port. Otherwise:
+
+```bash
+# See if you already have a server running under your user
+ecflow_client --host=$(hostname) --port=${ECF_PORT} --ping
+
+# Or check all ecflow_server processes on this host
+ps -u ${USER} -f | grep ecflow_server
+# Output shows: ecflow_server --port=23385 --ecf_home=...
+# The --port value is your ECF_PORT
+```
+
 ### Start your own server from scratch
 
 ```bash
-# 1. Pick a port unique to you (UID + 1500 avoids collisions)
+ssh uecflow01
+module load ecflow
 export ECF_PORT=$(( $(id -u) + 1500 ))
-echo "Starting ecFlow server on port ${ECF_PORT}"
-
-# 2. Create the job directory
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
-mkdir -p "${ECF_HOME}"
 
-# 3. Start the server
+# Check if it's still running
+ps -u ${USER} -f | grep ecflow_server
+
+# If not running, restart
 ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
 
-# 4. Verify it's running
-export ECF_HOST=$(hostname)
+# The server restores state from its checkpoint file.
+# Previously loaded suites reappear with their last known state.
 ecflow_client --ping
+# Expected: ping server(<hostname>:<port>) succeeded in 00:00:00.00...
+
+# 5. Save these values for future sessions
+echo "Add to your ~/.bashrc:"
+echo "  export ECF_HOST=${ECF_HOST}"
+echo "  export ECF_PORT=${ECF_PORT}"
+echo "  export ECF_HOME=${ECF_HOME}"
 ```
 
 ### Stop the server (when completely done)
@@ -148,25 +183,103 @@ ecflow_client --terminate=yes  # shut down the server process
 A single entry point handles all forecast-only cases. The case YAML
 drives everything (NET, mode, app, ensemble count, etc.).
 
-### Available cases
+### Starting a new session
 
-| Case | Command |
-|------|---------|
-| C48_ATM (GFS, default) | `python3 dev/workflow/ecflow/run_ecflow_case.py` |
-| C48_S2SWA GEFS | `python3 dev/workflow/ecflow/run_ecflow_case.py --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml` |
-| Any other case | `python3 dev/workflow/ecflow/run_ecflow_case.py --yaml dev/ci/cases/pr/<CASE>.yaml` |
+```bash
+# 1. SSH into Ursa
+ssh -X <username>@ursa.rdhpcs.noaa.gov
 
-### Quick start
+# 2. Source your environment (or add to ~/.bashrc once)
+module load ecflow
+unset ECF_HOSTFILE
+export ECF_PORT=$(( $(id -u) + 1500 ))
+export ECF_HOST=$(hostname)
+export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
+export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
+
+# 3. Verify the server is alive
+ecflow_client --ping
+```
+
+### Run a case
 
 ```bash
 cd ${HOMEglobal}
+python3 dev/workflow/ecflow/c48_atm_ecflow.py
+```
 
-# GFS forecast-only (default)
-python3 dev/workflow/ecflow/run_ecflow_case.py
+Answer `y` to the cleanup and delete prompts. The suite starts
+automatically. Monitor with:
 
-# GEFS forecast-only with S2SWA app and 2 ensemble members
-python3 dev/workflow/ecflow/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml
+```bash
+ecflow_ui &                    # GUI (needs X11 forwarding)
+# or
+ecflow_client --get_state /C48_ATM_ecflow   # CLI
+```
+
+### Check task progress
+
+```bash
+# See all tasks and their states
+ecflow_client --get_state /C48_ATM_ecflow
+
+# Check if a specific task is done
+ecflow_client --get_state /C48_ATM_ecflow/gfs/2021032312/fcst
+```
+
+### If a task fails (red/aborted)
+
+```bash
+# 1. Check the job output for the error
+cat ${ECF_HOME}/<task_name>.1
+
+# 2. Fix the issue (edit .ecf, fix paths, etc.)
+
+# 3. Rerun the task
+ecflow_client --force=queued /C48_ATM_ecflow/gfs/2021032312/<task_name>
+```
+
+### Rerun the whole suite from scratch
+
+```bash
+python3 dev/workflow/ecflow/c48_atm_ecflow.py --overwrite
+```
+
+### Clean up after a run
+
+```bash
+# Delete the suite from the server
+ecflow_client --suspend /C48_ATM_ecflow
+ecflow_client --kill /C48_ATM_ecflow
+sleep 5
+ecflow_client --delete=force yes /C48_ATM_ecflow
+
+# Optionally remove the experiment directories
+rm -rf ${RUNTESTS}/EXPDIR/C48_ATM_ecflow
+rm -rf ${RUNTESTS}/COMROOT/C48_ATM_ecflow
+```
+
+### Update .ecf scripts after editing (without regenerating)
+
+```bash
+bash dev/workflow/ecflow/sync_ecf_scripts.sh \
+    ${RUNTESTS}/EXPDIR/C48_ATM_ecflow/ecf_scripts
+```
+
+### End of day
+
+The ecFlow server persists across sessions. You can log out and
+come back tomorrow — the suite continues running (or waiting) on
+the server. Just re-source your environment variables when you
+reconnect.
+
+## 3. Run the C48_ATM Case
+
+### Quick start (all defaults)
+
+```bash
+cd ${HOMEglobal}
+python3 dev/workflow/ecflow/c48_atm_ecflow.py
 ```
 
 This will:
@@ -269,23 +382,8 @@ ecflow_client --force=queued /<suite_name>/<path_to_task>
 ```bash
 # In ecflow_ui: right-click task -> Rerun
 # Or from CLI:
-ecflow_client --force=queued /<suite_name>/<path_to_task>
+ecflow_client --force=queued /C48_ATM_ecflow/gfs/2021032312/fcst
 ```
-
-### Skip a task that already completed
-
-```bash
-ecflow_client --force=complete /<suite_name>/<path_to_task>
-```
-
-### Rerun the whole suite from scratch
-
-```bash
-python3 dev/workflow/ecflow/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/<CASE>.yaml --overwrite
-```
-
-## 6. Common Operations
 
 ### Suspend / resume the suite
 
@@ -300,7 +398,7 @@ ecflow_client --resume /<suite_name>
 ecflow_client --suspend /<suite_name>
 ecflow_client --kill /<suite_name>
 sleep 5
-ecflow_client --delete=force yes /<suite_name>
+ecflow_client --delete=force yes /C48_ATM_ecflow
 ```
 
 ### End of day
@@ -364,6 +462,24 @@ Common causes:
 - J-Job script not found (HOMEglobal path wrong)
 - File permissions
 
+### Jinja2 or other Python imports not found
+
+```
+ModuleNotFoundError: No module named 'jinja2'
+```
+
+**Fix:** The workflow's Python dependencies (Jinja2, PyYAML, etc.)
+are provided by the build modules. Load them before running any
+ecFlow or setup script:
+```bash
+module use ${HOMEglobal}/modulefiles
+module load module_gwsetup.ursa
+```
+
+If `module_gwsetup.ursa` is not available, load the stack that was
+used to build the workflow (e.g. `module load intel`, `module load
+spack-stack`) — the exact modules depend on your build.
+
 ### "Warm start detected" error on segmented forecast rerun
 
 The previous run left restart files in DATA. Clean the member's
@@ -411,19 +527,9 @@ Suite gen:   ForecastOnlyEcFlowSuite.write()
 Output:      {pslot}.def + ecf_scripts/
                               |
 Server:      ecflow_client --load / --begin
-                              |
-Execution:   .ecf scripts --> head.h + slurm.h + J-Job + tail.h
+                              │
+Execution:   .ecf scripts ──► head.h + slurm.h + J-Job + tail.h
 ```
 
-### Adding a new forecast system
-
-To add ecFlow support for a new NET (e.g. SFS):
-
-1. Create `sfs_ecflow_tasks.py` with per-task methods
-2. Register in `ecflow_tasks_factory.py`: `register('sfs', SFSEcFlowTasks)`
-3. Register in `ecflow_suite_factory.py`: `register('sfs_forecast-only', ForecastOnlyEcFlowSuite)`
-4. Add any new `.ecf` scripts to `dev/ecflow/scripts/`
-5. Create a case YAML under `dev/ci/cases/pr/`
-
-The unified `ForecastOnlyEcFlowSuite` handles both single-member
-(GFS) and ensemble (GEFS) runs automatically based on `NMEM_ENS`.
+For a detailed comparison with Rocoto, see
+`.kiro/specs/feature-ecflow-c48-atm/ecflow-process-trace.md`.

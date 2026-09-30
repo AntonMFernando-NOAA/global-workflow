@@ -15,6 +15,7 @@ with keys consumed by the suite generator::
         'task_name':    str,        # logical task name
         'jjob':         str,        # J-Job basename under dev/jobs/
         'resources':    dict,       # from get_resource()
+        'step':         str,        # config.resources step name
         'trigger':      str | None, # ecFlow trigger expression
         'product_task': bool,       # True → emit as family with fhr children
         'service_task': bool,       # True → service partition
@@ -94,10 +95,12 @@ class EcFlowTasks(Tasks):
             Whether this task runs on the service partition.
         """
         resources = self.get_resource(resource_name or task_name)
+        step = resource_name or task_name
         return {
             'task_name': task_name,
             'jjob': jjob,
             'resources': resources,
+            'step': step,
             'trigger': trigger,
             'product_task': False,
             'service_task': service,
@@ -133,6 +136,7 @@ class EcFlowTasks(Tasks):
             *config*.
         """
         resources = self.get_resource(resource_name or config)
+        step = resource_name or config
         fhrs = self._get_forecast_hours(self.run, self._configs[config], component)
 
         # Ocean/ice do not produce output at fhr 0
@@ -143,6 +147,7 @@ class EcFlowTasks(Tasks):
             'task_name': task_name,
             'jjob': jjob,
             'resources': resources,
+            'step': step,
             'trigger': trigger,
             'product_task': True,
             'service_task': False,
