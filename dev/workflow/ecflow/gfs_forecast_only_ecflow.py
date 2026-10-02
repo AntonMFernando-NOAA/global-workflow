@@ -56,36 +56,38 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         (currently only ``verbosity``).
     """
 
-    # Maps task names to category subdirectories in the experiment
-    # ecf_scripts/scripts/ tree (sources are found by name under
-    # dev/ecflow/scripts/).
+    # Maps task names to category paths.  A category path is a family
+    # path under the run family and mirrors the layout of
+    # dev/ecflow/scripts/ (for example ``product/atmos``).  The same
+    # path is used for the .def families and the experiment
+    # ecf_scripts/scripts/ tree.  Source scripts are found by name.
     TASK_CATEGORY = {
         'stage_ic': 'init',
         'fetch': 'init',
         'aerosol_init': 'init',
-        'waveinit': 'init',
+        'waveinit': 'init/wave',
         'fcst': 'forecast',
-        'atmos_prod': 'product',
-        'ocean_prod': 'product',
-        'ice_prod': 'product',
-        'wavepostgridded': 'product',
-        'atmupp': 'product',
-        'goesupp': 'product',
+        'atmos_prod': 'product/atmos',
+        'atmupp': 'product/atmos',
+        'goesupp': 'product/atmos',
+        'postsnd': 'product/atmos',
+        'gempak': 'product/atmos',
+        'gempakmeta': 'product/atmos',
+        'awips_20km_1p0deg': 'product/atmos',
+        'fbwind': 'product/atmos',
+        'ocean_prod': 'product/ocean',
+        'ice_prod': 'product/ice',
+        'wavepostgridded': 'product/wave',
+        'wavepostpnt': 'product/wave',
+        'wavepostbndpnt': 'product/wave',
+        'wavepostbndpntbll': 'product/wave',
+        'wavegempak': 'product/wave',
+        'waveawipsbulls': 'product/wave',
+        'waveawipsgridded': 'product/wave',
         'tracker': 'track',
         'genesis': 'track',
         'genesis_fsu': 'track',
-        'metp': 'verf',
-        'wavepostpnt': 'verf',
-        'wavepostbndpnt': 'verf',
-        'wavepostbndpntbll': 'verf',
-        'wavegempak': 'verf',
-        'waveawipsbulls': 'verf',
-        'waveawipsgridded': 'verf',
-        'postsnd': 'verf',
-        'gempak': 'verf',
-        'gempakmeta': 'verf',
-        'awips_20km_1p0deg': 'verf',
-        'fbwind': 'verf',
+        'metp': 'verf/atmos',
         'arch_vrfy': 'post',
         'arch_tars': 'post',
         'globus_arch': 'post',
@@ -146,7 +148,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
                            os.path.join(self.HOMEglobal, 'dev', 'ecflow',
                                         'include')))
 
-        # {dest_name: (source_ecf_name, category)}
+        # {dest_name: (source_ecf_name, category, dest_subdir, resources)}
         self._copy_map: Dict[str, tuple] = {}
 
         sdate = self._base['SDATE_GFS']
@@ -180,23 +182,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
         lines.append('')
 
-        # Emit tasks grouped by category family
-        from collections import OrderedDict
-        category_tasks: Dict[str, List[str]] = OrderedDict()
-        for task_name in self._task_names:
-            cat = self.TASK_CATEGORY.get(task_name, 'post')
-            category_tasks.setdefault(cat, []).append(task_name)
-
-        for cat, cat_task_names in category_tasks.items():
-            lines.append(f'{" " * indent}family {cat}')
-            cat_indent = indent + 2
-            for task_name in cat_task_names:
-                task_dict = self._tasks.get_ecflow_task(task_name)
-                task_lines = self._emit_task(task_dict, cat_indent)
-                lines += task_lines
-                lines.append('')
-            lines.append(f'{" " * indent}endfamily')
-            lines.append('')
+        # Emit tasks grouped by (possibly nested) category family
+        for name, node in self._category_tree().items():
+            lines += self._emit_category(name, node, indent)
 
         # Close cycle family
         indent = 4
@@ -237,6 +225,42 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         self._create_ecf_scripts()
 
         return def_file
+
+    # ── Category families ─────────────────────────────────────────────
+
+    def _category_tree(self) -> Dict:
+        """
+        Group task names into a nested tree of category families.
+
+        Returns
+        -------
+        dict
+            ``{family: {'tasks': [task_name, ...], 'children': {...}}}``
+            where nesting follows the ``/`` separated category paths.
+        """
+        tree: Dict = {}
+        for task_name in self._task_names:
+            cat = self.TASK_CATEGORY.get(task_name, 'post')
+            children = tree
+            for part in cat.split('/'):
+                node = children.setdefault(part, {'tasks': [], 'children': {}})
+                children = node['children']
+            node['tasks'].append(task_name)
+        return tree
+
+    def _emit_category(self, name: str, node: Dict, indent: int) -> List[str]:
+        """Emit a category family with its tasks and nested sub-families."""
+        sp = ' ' * indent
+        lines = [f'{sp}family {name}']
+        for task_name in node['tasks']:
+            task_dict = self._tasks.get_ecflow_task(task_name)
+            lines += self._emit_task(task_dict, indent + 2)
+            lines.append('')
+        for child_name, child in node['children'].items():
+            lines += self._emit_category(child_name, child, indent + 2)
+        lines.append(f'{sp}endfamily')
+        lines.append('')
+        return lines
 
     # ── Task rendering ────────────────────────────────────────────────
 
@@ -402,10 +426,16 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
               include/          ← head.h, tail.h, envir.h
               scripts/
                 init/           ← stage_ic.ecf
+                  wave/         ← waveinit.ecf
                 forecast/       ← fcst.ecf
-                product/        ← atmos_prod.ecf, f000.ecf, ...
+                product/
+                  atmos/        ← atmos_prod/f000.ecf, ...
+                  ocean/        ← ocean_prod/f006.ecf, ...
+                  ice/          ← ice_prod/f006.ecf, ...
+                  wave/         ← wavepostgridded/f000.ecf, ...
                 track/          ← tracker.ecf, genesis.ecf
-                verf/           ← metp.ecf
+                verf/
+                  atmos/        ← metp.ecf
                 post/           ← arch_tars.ecf, arch_vrfy.ecf, cleanup.ecf
 
         Each ``.ecf`` copy gets ``#SBATCH`` directives injected after

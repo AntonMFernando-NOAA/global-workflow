@@ -1,8 +1,12 @@
 # Running Global Workflow with ecFlow
 
-This guide covers running forecast-only test cases (GFS, GEFS, SFS)
-using ecFlow on Ursa. The same steps apply to other platforms with
-minor path adjustments.
+This guide walks through running the C48_ATM forecast-only test case
+using ecFlow on Ursa. The same steps apply to other cases and platforms
+with minor path adjustments.
+
+> **Note:** This guide is Ursa-specific. Paths (e.g. `/scratch3/NCEPDEV/global/${USER}/`),
+> hostnames (e.g. `uecflow01`), and Slurm settings (e.g. `fv3-cpu`, `u1-compute`) below
+> are examples for Ursa; portability to other platforms is not yet supported.
 
 ## Prerequisites
 
@@ -38,7 +42,7 @@ ssh <username>@ursa.rdhpcs.noaa.gov
 ecflow_ui requires X11 forwarding to display the GUI on your
 local machine.
 
-**PuTTY:** Go to Connection > SSH > X11 > check "Enable X11
+**PuTTY:** Go to Connection → SSH → X11 → check "Enable X11
 forwarding". You also need an X server running locally
 (install [VcXsrv](https://sourceforge.net/projects/vcxsrv/)
 or [Xming](https://sourceforge.net/projects/xming/) on Windows).
@@ -70,16 +74,16 @@ Set these variables before running any ecFlow scripts. Add them to
 your `~/.bashrc` or source them in each session.
 
 ```bash
-# ── Step 1a: Load workflow modules (provides jinja2, pyyaml, etc.) ─
-source ${HOMEglobal}/dev/ush/load_modules.sh setup
-
-# ── Step 1b: Load the ecFlow module ──────────────────────────────
+# ── Step 1a: Load the ecFlow module ──────────────────────────────
 module load ecflow
 
 # Remove any stale host file that might redirect ecflow_client
 unset ECF_HOSTFILE
 
 # ── Step 1b: Set the global-workflow repo path ───────────────────
+# Point this to wherever you cloned the repo.  The loader script
+# auto-detects HOMEglobal from its own location, but ecFlow tasks
+# read it from the environment during validation.
 export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
 
 # ── Step 1b-workaround: Machine detection on ufe nodes ───────────
@@ -88,14 +92,14 @@ export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
 # platform errors, force the machine identity:
 export MACHINE_ID=URSA
 
-# ── Step 1d: Choose an ecFlow server ─────────────────────────────
+# ── Step 1c: Choose an ecFlow server ─────────────────────────────
 # Each user runs their own ecFlow server on a unique port.
 # Use your UID offset by 1500 to avoid collisions with other users:
 export ECF_PORT=$(( $(id -u) + 1500 ))
 export ECF_HOST=uecflow01
 echo "Your ecFlow server: ${ECF_HOST}:${ECF_PORT}"
 
-# ── Step 1e: Set the ecFlow job directory ────────────────────────
+# ── Step 1d: Set the ecFlow job directory ────────────────────────
 # This is where ecFlow writes .job files and captures .jobout output.
 # Create it if it doesn't exist.
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
@@ -126,25 +130,44 @@ export ECF_PORT=$(( $(id -u) + 1500 ))
 ecflow_client --ping
 ```
 
-If it responds with `ping server(...) succeeded`, the server is up.
-Skip to step 3.
+If it responds with `ping server(...) succeeded`, skip to step 3.
+If it fails, start or restart the server (see below).
 
-### Find your server port
+### Start the server (first time)
 
-If someone gave you a server to use, they will have given you the
-host and port. Otherwise:
+The ecFlow server must run on the dedicated node `uecflow01`.
 
 ```bash
-# See if you already have a server running under your user
-ecflow_client --host=$(hostname) --port=${ECF_PORT} --ping
+# 1. SSH into the ecFlow node
+ssh uecflow01
 
-# Or check all ecflow_server processes on this host
-ps -u ${USER} -f | grep ecflow_server
-# Output shows: ecflow_server --port=23385 --ecf_home=...
-# The --port value is your ECF_PORT
+# 2. Load ecflow and set your port
+module load ecflow
+export ECF_PORT=$(( $(id -u) + 1500 ))
+
+# 3. Create the job directory
+export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
+mkdir -p "${ECF_HOME}"
+
+# 4. Start the server
+ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
+
+# 5. Verify
+export ECF_HOST=uecflow01
+ecflow_client --ping
+
+# 6. Exit back to your login node — the server keeps running
+exit
 ```
 
-### Start your own server from scratch
+Your port is always `$(id -u) + 1500` — deterministic for your user,
+no need to remember it.
+
+### Restart a stopped server
+
+If the server was killed (node reboot, timeout, etc.), SSH back
+to `uecflow01` and restart it. Your suites and checkpoints are
+preserved in `ECF_HOME`.
 
 ```bash
 ssh uecflow01
@@ -161,13 +184,14 @@ ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
 # The server restores state from its checkpoint file.
 # Previously loaded suites reappear with their last known state.
 ecflow_client --ping
-# Expected: ping server(<hostname>:<port>) succeeded in 00:00:00.00...
+exit
+```
 
-# 5. Save these values for future sessions
-echo "Add to your ~/.bashrc:"
-echo "  export ECF_HOST=${ECF_HOST}"
-echo "  export ECF_PORT=${ECF_PORT}"
-echo "  export ECF_HOME=${ECF_HOME}"
+If a suite was mid-run when the server died, tasks that were
+`active` will show as `aborted` after restart. Requeue them:
+
+```bash
+ecflow_client --force=set /<suite>/<path_to_task> queued
 ```
 
 ### Stop the server (when completely done)
@@ -178,10 +202,9 @@ ecflow_client --check_pt       # save server state
 ecflow_client --terminate=yes  # shut down the server process
 ```
 
-## 3. Run a Test Case
+## Day-to-Day Operations (Quick Reference)
 
-A single entry point handles all forecast-only cases. The case YAML
-drives everything (NET, mode, app, ensemble count, etc.).
+Once steps 0–2 are done, this is all you need each day.
 
 ### Starting a new session
 
@@ -193,19 +216,32 @@ ssh -X <username>@ursa.rdhpcs.noaa.gov
 module load ecflow
 unset ECF_HOSTFILE
 export ECF_PORT=$(( $(id -u) + 1500 ))
-export ECF_HOST=$(hostname)
+export ECF_HOST=uecflow01
 export ECF_HOME=/scratch3/NCEPDEV/global/${USER}/ecflow
-export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow
+export HOMEglobal=/scratch3/NCEPDEV/global/${USER}/global-workflow  # adjust to your clone path
+export MACHINE_ID=URSA  # prevent misdetection on ufe nodes
 
-# 3. Verify the server is alive
+# 3. Verify the server is alive (must have been started on uecflow01)
 ecflow_client --ping
 ```
+
+If the ping fails, start the server per
+[section 2](#2-ecflow-server) before continuing.
 
 ### Run a case
 
 ```bash
 cd ${HOMEglobal}
+
+# Quick start (all defaults)
 python3 dev/workflow/ecflow/c48_atm_ecflow.py
+
+# Or with custom paths
+python3 dev/workflow/ecflow/c48_atm_ecflow.py \
+    --pslot my_C48_test \
+    --comroot /scratch4/NCEPDEV/stmp/${USER}/COMROOT \
+    --expdir /scratch3/NCEPDEV/global/${USER}/EXPDIR \
+    --stmp /scratch4/NCEPDEV/stmp/${USER}
 ```
 
 Answer `y` to the cleanup and delete prompts. The suite starts
@@ -257,6 +293,7 @@ ecflow_client --delete=force yes /C48_ATM_ecflow
 # Optionally remove the experiment directories
 rm -rf ${RUNTESTS}/EXPDIR/C48_ATM_ecflow
 rm -rf ${RUNTESTS}/COMROOT/C48_ATM_ecflow
+rm -rf ${STMP}/RUNDIRS/C48_ATM_ecflow
 ```
 
 ### Update .ecf scripts after editing (without regenerating)
@@ -294,10 +331,10 @@ The suite is loaded but **not started**. The script prints the
 ### With custom paths
 
 ```bash
-python3 dev/workflow/ecflow/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml \
-    --pslot my_gefs_test \
+python3 dev/workflow/ecflow/c48_atm_ecflow.py \
+    --pslot my_C48_test \
     --comroot /scratch4/NCEPDEV/stmp/${USER}/COMROOT \
+    --expdir /scratch3/NCEPDEV/global/${USER}/EXPDIR \
     --stmp /scratch4/NCEPDEV/stmp/${USER}
 ```
 
@@ -305,8 +342,8 @@ python3 dev/workflow/ecflow/run_ecflow_case.py \
 
 | Option | Description |
 |--------|-------------|
-| `--yaml PATH` | Case YAML file (default: C48_ATM) |
-| `--pslot NAME` | Override experiment name |
+| `--yaml PATH` | Override the case YAML file |
+| `--pslot NAME` | Override experiment name (default: `C48_ATM_ecflow`) |
 | `--comroot PATH` | Override output data directory |
 | `--expdir PATH` | Override experiment config directory |
 | `--stmp PATH` | Override runtime scratch directory |
@@ -329,96 +366,115 @@ complete (yellow), aborted (red).
 
 ```bash
 # Suite status overview
-ecflow_client --get_state /<suite_name>
+ecflow_client --get_state /C48_ATM_ecflow
 
 # Watch a specific task
-ecflow_client --get_state /<suite_name>/gefs/2021032312/fcst
+ecflow_client --get_state /C48_ATM_ecflow/gfs/2021032312/fcst
 
 # View job output for a task
-cat ${ECF_HOME}/<task_name>.1    # .1 = first try number
+cat ${ECF_HOME}/fcst.1    # .1 = first try number
 ```
 
 ### Log files
 
 Task logs are written to `{ROTDIR}/logs/`:
 ```bash
-ls ${COMROOT}/<suite_name>/logs/
+ls ${COMROOT}/C48_ATM_ecflow/logs/
 ```
 
-## 5. Updating and Rerunning
+## 5. Common Operations
 
-### After editing .ecf scripts (J-Job wrappers)
-
-Sync the updated scripts to the experiment directory. No server
-restart needed:
+### Rerun a failed task
 
 ```bash
-bash dev/workflow/ecflow/reload_ecflow_def.sh \
-    ${RUNTESTS}/EXPDIR/<suite_name> sync
-```
-
-Then rerun the failed task:
-```bash
-ecflow_client --force=queued /<suite_name>/<path_to_task>
-```
-
-### After editing Python suite generator or task definitions
-
-Regenerate the `.def`, sync scripts, and replace the suite on the
-server (preserves all task states):
-
-```bash
-bash dev/workflow/ecflow/reload_ecflow_def.sh \
-    ${RUNTESTS}/EXPDIR/<suite_name> reload
-```
-
-Then rerun the failed task:
-```bash
-ecflow_client --force=queued /<suite_name>/<path_to_task>
-```
-
-### Rerun a failed task (no code changes)
-
-```bash
-# In ecflow_ui: right-click task -> Rerun
+# In ecflow_ui: right-click task → Rerun
 # Or from CLI:
 ecflow_client --force=queued /C48_ATM_ecflow/gfs/2021032312/fcst
 ```
 
+### Resume a partial run (keep previous output)
+
+If a run failed partway through and you want to reuse the existing
+output data (COMROOT, RUNDIRS) rather than starting from scratch:
+
+**CLI approach:**
+
+```bash
+# 1. Reload the .def — say "no" to cleaning EXPDIR/COMROOT
+#    so previous output is preserved, then "yes" to replace the suite
+python3 dev/workflow/ecflow/c48_atm_ecflow.py
+
+# 2. Suspend the suite before beginning so nothing auto-runs
+ecflow_client --suspend /C48_ATM_ecflow
+
+# 3. Begin the suite (all tasks go to "queued" but stay held)
+ecflow_client --begin=C48_ATM_ecflow
+
+# 4. Mark tasks that already completed successfully
+ecflow_client --force=complete /C48_ATM_ecflow/gfs/2021032312/init/stage_ic
+ecflow_client --force=complete /C48_ATM_ecflow/gfs/2021032312/forecast/fcst
+# ... repeat for each task that finished in the previous run
+
+# 5. Resume — remaining tasks will run based on their triggers
+ecflow_client --resume /C48_ATM_ecflow
+```
+
+**ecflow_ui approach:**
+
+1. Load the `.def` as above (say "no" to cleanup)
+2. In ecflow_ui, right-click the suite → **Suspend**
+3. Click **Begin** on the suite
+4. For each task that already completed: right-click →
+   **Force** → **Complete**
+5. Right-click the suite → **Resume**
+
+The CLI and ecflow_ui approaches can be combined — for example,
+load and begin from the command line, then mark completed tasks
+in the GUI where the suite tree makes it easier to see what ran.
+The trigger logic will pick up from where the previous run left
+off, running only the tasks whose dependencies are now satisfied.
+
 ### Suspend / resume the suite
 
 ```bash
-ecflow_client --suspend /<suite_name>
-ecflow_client --resume /<suite_name>
+ecflow_client --suspend /C48_ATM_ecflow
+ecflow_client --resume /C48_ATM_ecflow
 ```
 
 ### Delete the suite
 
 ```bash
-ecflow_client --suspend /<suite_name>
-ecflow_client --kill /<suite_name>
+ecflow_client --suspend /C48_ATM_ecflow
+ecflow_client --kill /C48_ATM_ecflow
 sleep 5
 ecflow_client --delete=force yes /C48_ATM_ecflow
 ```
 
-### End of day
+### Cancel Slurm jobs
 
-The ecFlow server persists across sessions. You can log out and
-come back tomorrow. Just re-source your environment variables when
-you reconnect.
-
-## 7. Troubleshooting
-
-### "No module named 'jinja2'"
-
-```
-ModuleNotFoundError: No module named 'jinja2'
-```
-
-**Fix:** Load workflow modules before running:
 ```bash
-source ${HOMEglobal}/dev/ush/load_modules.sh setup
+# Cancel a specific job by ID (get the ID from squeue)
+squeue -u ${USER}
+scancel <job_id>
+
+# Cancel all your running jobs at once
+scancel -u ${USER}
 ```
+
+### Update .ecf scripts without regenerating the .def
+
+```bash
+bash dev/workflow/ecflow/sync_ecf_scripts.sh \
+    ${EXPDIR}/C48_ATM_ecflow/ecf_scripts
+```
+
+### Regenerate the .def from scratch
+
+```bash
+python3 dev/workflow/ecflow/c48_atm_ecflow.py --overwrite
+```
+
+## 6. Troubleshooting
 
 ### "Missing environment variables"
 
@@ -426,18 +482,61 @@ source ${HOMEglobal}/dev/ush/load_modules.sh setup
 [ERROR] Missing environment variables: ECF_HOST, ECF_PORT, ECF_HOME
 ```
 
-**Fix:** Source the environment variables from step 1.
+**Fix:** Source the environment variables from step 1. Make sure
+`module load ecflow` has been run and `unset ECF_HOSTFILE` is set.
 
 ### "Cannot reach ecFlow server"
 
+```
+[ERROR] Cannot reach ecFlow server at uecflow01:23385
+```
+
 **Fix:** Check that the server is running (`ecflow_client --ping`).
-If running your own, start it with `ecflow_start.sh`.
+If using a shared server, verify the hostname and port. If running
+your own, start it with `ecflow_start.sh`.
+
+### Suite delete times out
+
+```
+[WARN] Delete failed: timeout
+```
+
+**Fix:** The suite has active jobs that are blocking the delete.
+Kill them manually first:
+```bash
+ecflow_client --suspend /C48_ATM_ecflow
+ecflow_client --kill /C48_ATM_ecflow
+sleep 20
+ecflow_client --delete=force yes /C48_ATM_ecflow
+```
+
+### "ecflow_client --load" fails
+
+```
+[ERROR] ecflow_client failed: ecflow_client --load=...
+  stderr: <error message>
+```
+
+**Fix:** The `.def` file has a syntax error. Check the generated file:
+```bash
+cat ${EXPDIR}/C48_ATM_ecflow/C48_ATM_ecflow.def
+```
+
+Common causes:
+- Task names with special characters
+- Missing `endfamily` or `endsuite` closing tags
+- Invalid trigger expressions
+
+You can validate the `.def` before loading:
+```bash
+ecflow_client --check ${EXPDIR}/C48_ATM_ecflow/C48_ATM_ecflow.def
+```
 
 ### Tasks stay in "queued" state
 
 **Check triggers:** The task might be waiting for an upstream task.
 ```bash
-ecflow_client --get_state /<suite_name>/<path_to_task>
+ecflow_client --get_state /C48_ATM_ecflow/gfs/2021032312/<task_name>
 ```
 
 **Check Slurm:** The job might be pending in the Slurm queue.
@@ -449,7 +548,7 @@ squeue -u ${USER}
 
 **Check the .ecf script exists:**
 ```bash
-ls ${EXPDIR}/<suite_name>/ecf_scripts/<task_name>.ecf
+ls ${EXPDIR}/C48_ATM_ecflow/ecf_scripts/<task_name>.ecf
 ```
 
 **Check the job output:**
@@ -480,56 +579,62 @@ If `module_gwsetup.ursa` is not available, load the stack that was
 used to build the workflow (e.g. `module load intel`, `module load
 spack-stack`) — the exact modules depend on your build.
 
-### "Warm start detected" error on segmented forecast rerun
+### METplus or archive tasks appear when they shouldn't
 
-The previous run left restart files in DATA. Clean the member's
-DATA directory before rerunning:
+If `metp` or `arch_tars` show up in the suite despite being
+disabled, check the rendered `config.base`:
 ```bash
-rm -rf /scratch4/NCEPDEV/stmp/${USER}/RUNDIRS/<suite_name>/gefs*<member>*
-ecflow_client --force=queued /<suite_name>/<path_to_seg0>
+grep DO_METP ${EXPDIR}/C48_ATM_ecflow/config.base
+grep DO_ARCHCOM ${EXPDIR}/C48_ATM_ecflow/config.base
 ```
 
-## 8. Directory Layout
+On Ursa, these should be set to `"NO"` by the platform guards
+in `config.base.j2`. If they show `"YES"`, the experiment was
+generated before the guards were added — regenerate with
+`--overwrite`.
+
+## 7. Directory Layout
 
 After a successful run, the experiment produces:
 
 ```
 ${RUNTESTS}/
-  EXPDIR/<suite_name>/              experiment config
-    config.base                      config files
+  EXPDIR/C48_ATM_ecflow/           ← experiment config
+    config.base                     config files
     config.fcst
     config.atmos_products
     ...
-    <suite_name>.def                 generated ecFlow definition
-    ecf_scripts/                     copied .ecf files + manifest
-  COMROOT/<suite_name>/              output data
-    gefs.20210323/12/                forecast output (or gfs.* for GFS)
+    C48_ATM_ecflow.def              generated ecFlow definition
+    ecf_scripts/                    copied .ecf files + manifest
+  COMROOT/C48_ATM_ecflow/           ← output data
+    gfs.20210323/12/                 forecast output
       model_data/atmos/history/      atmospheric history files
     logs/                            task log files
-  RUNDIRS/<suite_name>/              runtime scratch (cleaned up)
+  RUNDIRS/C48_ATM_ecflow/           ← runtime scratch (cleaned up)
 ```
 
-## 9. Architecture Overview
+## 8. Architecture Overview
+
+The ecFlow engine mirrors the Rocoto architecture:
 
 ```
-Entry point:      run_ecflow_case.py --yaml <case>.yaml
-                       |
+Entry point:      c48_atm_ecflow.py
+                       │
 Orchestrator:     load_ecflow_case.run()
-                       |
-                  +----+----+
-                  |         |
-Experiment:  setup_expt  setup_workflow --> ecflow_suite_factory
-                              |
-Task defs:   ecflow_tasks_factory --> GFSEcFlowTasks / GEFSEcFlowTasks
-                              |          (one method per task)
-Suite gen:   ForecastOnlyEcFlowSuite.write()
-                              |
+                       │
+                  ┌────┴────┐
+                  │         │
+Experiment:  setup_expt  setup_workflow ──► ecflow_suite_factory
+                              │
+Task defs:   ecflow_tasks_factory ──► GFSEcFlowTasks
+                              │          (one method per task)
+Suite gen:   GFSForecastOnlyEcFlowSuite.write()
+                              │
 Output:      {pslot}.def + ecf_scripts/
-                              |
+                              │
 Server:      ecflow_client --load / --begin
                               │
-Execution:   .ecf scripts ──► head.h + slurm.h + J-Job + tail.h
+Execution:   .ecf scripts ──► #SBATCH + head.h + envir.h + J-Job + tail.h
+                              │
+Submission:  sbatch runs the preprocessed .job (#SBATCH directives baked into .ecf)
 ```
-
-For a detailed comparison with Rocoto, see
-`.kiro/specs/feature-ecflow-c48-atm/ecflow-process-trace.md`.
