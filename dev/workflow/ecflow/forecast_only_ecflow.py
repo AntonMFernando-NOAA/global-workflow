@@ -102,7 +102,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             os.environ.get('ECF_FILES',
                            os.path.join(self.HOMEglobal, 'dev', 'ecflow',
                                         'scripts')))
-        self._copy_map: List = []
+        # {(label, source_name, scope_dir_or_None): resources}
+        self._copy_map: Dict[tuple, Dict] = {}
+        self._ecf_index = self.index_ecf_sources(self._ecf_src_dir)
 
         # Fetch all task dicts
         all_tasks: List[Dict] = []
@@ -244,6 +246,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines = []
         lines.append(f'{sp}family fcst_member')
         lines.append(f'{fsp}# {self._nmem} perturbed members')
+        lines += self._ecf_files_edit('fcst', fsp, 'fcst_member')
 
         # Family-level trigger (stage_ic, waveinit, etc.)
         trigger = fcst_td.get('trigger', '')
@@ -265,7 +268,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             # Emit segment sub-tasks directly inside the member family.
             for seg in range(num_segments):
                 seg_name = f'seg{seg}'
-                self._copy_map.append((seg_name, 'fcst'))
+                self._copy_map[(seg_name, 'fcst', 'fcst_member')] = res
                 lines.append(f'{msp}task {seg_name}')
                 lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
                 if seg > 0:
@@ -307,10 +310,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         if is_product:
             lines.append(f"{fsp}edit TASK '{task_name}'")
-            # Scope ECF_FILES to the per-family subdirectory so
-            # prune_root resolves memNNN/fXXX → <task_name>/fXXX.ecf.
-            ecf_subdir = str(self._ecf_scripts_dir / task_name)
-            lines.append(f"{fsp}edit ECF_FILES '{ecf_subdir}'")
+        lines += self._ecf_files_edit(
+            task_name, fsp, task_name if is_product else None)
 
         lines.append('')
 
@@ -339,7 +340,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 lines += self._emit_product_children(td_copy, indent + 4)
             else:
                 # Simple per-member task.
-                self._copy_map.append((task_name, task_name))
+                self._copy_map[(task_name, task_name, None)] = \
+                    td_copy['resources']
                 lines.append(f'{msp}task {task_name}')
                 lines.append(f"{tsp}edit TASK '{task_name}'")
                 lines += self._resource_edits(
@@ -383,9 +385,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map.append((label, task_name))
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
+            self._copy_map[(label, task_name, task_name)] = \
+                dict(res, walltime=grp_walltime)
 
             lines.append(f'{sp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
@@ -472,10 +475,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         res = task_dict['resources']
         trigger = task_dict.get('trigger')
 
-        self._copy_map.append((task_name, task_name))
+        self._copy_map[(task_name, task_name, None)] = res
 
         lines = [f'{sp}task {task_name}',
                  f"{tsp}edit TASK '{task_name}'"]
+        lines += self._ecf_files_edit(task_name, tsp)
         lines += self._resource_edits(res, tsp)
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
@@ -496,6 +500,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines = [f'{sp}family {task_name}',
                  f"{fsp}edit TASK '{task_name}'"]
+        lines += self._ecf_files_edit(task_name, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
         lines += self._resource_edits(res, fsp)
@@ -503,7 +508,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         for seg in range(num_segments):
             seg_name = f'seg{seg}'
-            self._copy_map.append((seg_name, task_name))
+            self._copy_map[(seg_name, task_name, task_name)] = res
             lines.append(f'{fsp}task {seg_name}')
             lines.append(f"{tsp}edit FCST_SEGMENT '{seg}'")
             if seg > 0:
@@ -534,6 +539,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines = [f'{sp}family {task_name}',
                  f"{fsp}edit TASK '{task_name}'",
                  f"{fsp}# {len(fhrs)} forecast hours in {ngroups} groups"]
+        lines += self._ecf_files_edit(task_name, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
         lines += self._resource_edits(res, fsp, skip_walltime=True)
@@ -545,9 +551,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             else:
                 label = f'f{grp[0]:03d}_f{grp[-1]:03d}'
 
-            self._copy_map.append((label, task_name))
             fhr_list_str = ','.join(str(f) for f in grp)
             grp_walltime = Tasks.multiply_HMS(base_walltime, len(grp))
+            self._copy_map[(label, task_name, task_name)] = \
+                dict(res, walltime=grp_walltime)
 
             lines.append(f'{fsp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
@@ -556,6 +563,41 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines.append(f'{sp}endfamily')
         return lines
+
+    # ── Script lookup ─────────────────────────────────────────────────
+
+    def _ecf_files_edit(self, src_name: str, indent_str: str,
+                        scope_name: str = None) -> List[str]:
+        """Emit an ``ECF_FILES`` edit for the repo-mirrored script directory.
+
+        ecFlow prunes the node path until ``<name>.ecf`` is found under
+        ``ECF_FILES``, so pointing it at the directory that holds the
+        script lets ``ecf_scripts/`` keep the layout of
+        ``dev/ecflow/scripts/``.
+
+        Parameters
+        ----------
+        src_name : str
+            Source script name (for example ``atmos_prod``).
+        indent_str : str
+            Indentation prefix for the emitted line.
+        scope_name : str, optional
+            Family name whose labelled children (``f000.ecf``,
+            ``seg0.ecf``) live in ``<dir>/<scope_name>/``.  When None the
+            edit points at the directory of the source script itself.
+
+        Returns
+        -------
+        List[str]
+            One edit line, or an empty list when the script is unknown.
+        """
+        rel_path = self._ecf_index.get(src_name)
+        if rel_path is None:
+            return []
+        ecf_dir = self._ecf_scripts_dir / Path(rel_path).parent
+        if scope_name:
+            ecf_dir = ecf_dir / scope_name
+        return [f"{indent_str}edit ECF_FILES '{ecf_dir}'"]
 
     # ── Resource edits ────────────────────────────────────────────────
 
@@ -589,55 +631,53 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     # ── ecf_scripts management ────────────────────────────────────────
 
     def _create_ecf_scripts(self) -> None:
-        """Populate the ECF_FILES directory with .ecf scripts.
+        """Populate the ECF_FILES directory with the repo script layout.
 
-        Copies all source .ecf files by original name at the top level,
-        then processes the copy map.  Entries where src and dest differ
-        (product families) get per-family subdirectories (e.g.
-        ``atmos_prod/f000.ecf``) so per-family ECF_FILES overrides
-        resolve them via prune_root.
+        Every source script is copied to the same relative path it has
+        under ``dev/ecflow/scripts/``.  Labelled children of a family
+        (forecast-hour groups, forecast segments) are copied next to
+        their source into a directory named after the family.  Each
+        copy gets ``#SBATCH`` directives for its own resources::
+
+            {EXPDIR}/ecf_scripts/
+              init/stage_ic.ecf
+              forecast/fcst.ecf
+              forecast/fcst/seg0.ecf
+              forecast/fcst_member/seg0.ecf
+              product/atmos/atmos_prod.ecf
+              product/atmos/atmos_prod/f000_f024.ecf
+
+        The ``ECF_FILES`` edits written by ``_ecf_files_edit`` point
+        ecFlow at the matching directory.
         """
+        import shutil
+
         scripts_dir = self._ecf_scripts_dir
         src_dir = self._ecf_src_dir
 
         if scripts_dir.exists():
-            import shutil as _shutil
-            _shutil.rmtree(scripts_dir)
+            shutil.rmtree(scripts_dir)
         scripts_dir.mkdir(parents=True)
 
-        import shutil
-        from collections import defaultdict
+        ecf_index = self._ecf_index
+        for rel_path in ecf_index.values():
+            dest = scripts_dir / f'{rel_path}.ecf'
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src_dir / f'{rel_path}.ecf'), str(dest))
 
-        ecf_index = self.index_ecf_sources(src_dir)
+        for (label, src_name, scope_name), res in self._copy_map.items():
+            if src_name not in ecf_index:
+                continue
+            rel_path = Path(ecf_index[src_name])
+            dest_dir = scripts_dir / rel_path.parent
+            if scope_name:
+                dest_dir = dest_dir / scope_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy all source .ecf files by original name at top level.
-        for name, rel_path in ecf_index.items():
-            shutil.copy2(str(src_dir / f'{rel_path}.ecf'),
-                         str(scripts_dir / f'{name}.ecf'))
-
-        # Group copy map entries by dest (task label) to detect collisions,
-        # and collect every src that needs a subdirectory.
-        by_task: dict = defaultdict(set)
-        for dest_name, src_name in self._copy_map:
-            by_task[dest_name].add(src_name)
-
-        for dest_name, src_names in by_task.items():
-            for src_name in src_names:
-                if src_name not in ecf_index:
-                    continue
-                src = src_dir / f'{ecf_index[src_name]}.ecf'
-                if src_name == dest_name:
-                    # Same name — flat copy at top level.
-                    dest = scripts_dir / f'{dest_name}.ecf'
-                    if not dest.exists():
-                        shutil.copy2(str(src), str(dest))
-                else:
-                    # Different name — per-family subdirectory so
-                    # ECF_FILES scoped to <family> resolves the label.
-                    family_dir = scripts_dir / src_name
-                    family_dir.mkdir(exist_ok=True)
-                    shutil.copy2(str(src),
-                                 str(family_dir / f'{dest_name}.ecf'))
+            content = (src_dir / f'{rel_path}.ecf').read_text()
+            sbatch = self._sbatch_header(res, label)
+            (dest_dir / f'{label}.ecf').write_text(
+                self._insert_sbatch(content, sbatch))
 
         # Write manifest recording the source directory for sync.
         manifest = scripts_dir / 'ecf_scripts.manifest'
@@ -665,7 +705,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get(
             'ECF_INCLUDE',
-            os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'utils'))
+            os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'include'))
 
         lines.append(f"{sp}# ecFlow server connection")
         lines.append(f"{sp}edit ECF_LOGHOST '{ecf_host}'")

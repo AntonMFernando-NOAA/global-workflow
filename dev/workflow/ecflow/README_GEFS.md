@@ -15,12 +15,13 @@ For a step-by-step walk through of what each command does, see
 | Item | C48_ATM (GFS) | C48_S2SWA_gefs (GEFS) |
 |------|---------------|-----------------------|
 | Case YAML | `C48_ATM.yaml` (default) | `C48_S2SWA_gefs.yaml` (`--yaml` required) |
-| Suite generator | `gfs_forecast_only_ecflow.py` | `forecast_only_ecflow.py` |
+| Suite generator | `forecast_only_ecflow.py` | `forecast_only_ecflow.py` (same class) |
 | Task definitions | `gfs_ecflow_tasks.py` | `gefs_ecflow_tasks.py` |
-| Suite hierarchy | `suite/cycle/run/category/task` | `suite/run/cycle/task-or-member-family` |
-| Ensemble members | none | `NMEM_ENS` > 0 gives `mem000` .. `memNNN` families |
-| Script tree in `EXPDIR/ecf_scripts/` | `scripts/{category}/...` | flat `{name}.ecf` plus `{family}/{label}.ecf` |
-| Script categories | `TASK_CATEGORY` map | not used (source found by name) |
+| Ensemble members | none (`NMEM_ENS=0`) | `NMEM_ENS` > 0 gives `mem000` .. `memNNN` families |
+
+`ecflow_suite_factory.py` registers `ForecastOnlyEcFlowSuite` for both
+`gfs_forecast-only` and `gefs_forecast-only`, so the script layout and
+`ECF_FILES` handling below apply to both cases.
 
 ## Run the case
 
@@ -45,15 +46,6 @@ Useful options (all from `load_ecflow_case.py`):
 | `--pslot NAME` | Experiment and suite name (default `<yaml_stem>_ecflow`) |
 | `--expdir`, `--comroot`, `--stmp` | Override output locations |
 | `--suite-name NAME` | ecFlow suite name (default is the pslot) |
-
-> **Note:** `ECF_INCLUDE` for the GEFS suite defaults to
-> `${HOMEglobal}/dev/ecflow/utils`, which does not exist in this
-> repository. The header files live in `dev/ecflow/include`. Until the
-> default is fixed, export it before running the loader:
->
-> ```bash
-> export ECF_INCLUDE=${HOMEglobal}/dev/ecflow/include
-> ```
 
 ## Generated suite hierarchy
 
@@ -131,20 +123,36 @@ ecf_index = self.index_ecf_sources(src_dir)
 Script names must therefore be unique across the whole tree; a
 duplicate raises `ValueError` when the suite is generated.
 
-The experiment copy under `${EXPDIR}/ecf_scripts/` is built from that
-index:
+The experiment copy under `${EXPDIR}/ecf_scripts/` keeps the same
+layout. Labelled children of a family (forecast-hour groups, forecast
+segments) go in a directory named after the family, and every copy gets
+its own `#SBATCH` directives (no `slurm.h`):
 
 ```
 ${EXPDIR}/ecf_scripts/
-  stage_ic.ecf  fcst.ecf  atmos_ensstat.ecf  cleanup.ecf ...   task scripts
-  fcst/seg0.ecf  fcst/seg1.ecf                                  segments
-  atmos_prod/f000_f024.ecf ...                                  fhr groups
+  init/stage_ic.ecf
+  init/wave/waveinit.ecf
+  forecast/fcst.ecf
+  forecast/fcst/seg0.ecf              control segments
+  forecast/fcst_member/seg0.ecf       perturbed-member segments
+  product/atmos/atmos_prod.ecf
+  product/atmos/atmos_prod/f000_f024.ecf ...
+  product/atmos/atmos_ensstat/f000.ecf ...
+  product/ocean/ocean_prod/f024.ecf ...
+  post/cleanup.ecf ...
   ecf_scripts.manifest
 ```
 
-Each product family edits `ECF_FILES` to its own subdirectory, so
-`mem001/f000_f024` resolves to `atmos_prod/f000_f024.ecf` for every
-member.
+Every task or family in the `.def` carries an `ECF_FILES` edit that
+points at the matching directory (for example
+`.../ecf_scripts/product/atmos/atmos_prod` for the `atmos_prod`
+family). ecFlow prunes the node path until `<name>.ecf` is found there,
+so `mem001/f000_f024` resolves to `atmos_prod/f000_f024.ecf` for every
+member. Control and member forecasts use separate directories because
+they have different resources.
+
+`ECF_INCLUDE` defaults to `${HOMEglobal}/dev/ecflow/include` (`head.h`,
+`tail.h`, `envir.h`).
 
 ## Adding or moving a script
 
@@ -152,10 +160,7 @@ member.
    category (create a sub-directory such as `product/atmos/` if needed).
 2. Keep the file name equal to the task name used in
    `gefs_ecflow_tasks.py` (or `gfs_ecflow_tasks.py`).
-3. For the GFS generator, also set the task category in
-   `GFSForecastOnlyEcFlowSuite.TASK_CATEGORY` to the directory path
-   (for example `'postsnd': 'product/atmos'`). GEFS needs no mapping.
-4. Re-run the loader with `--overwrite`.
+3. Re-run the loader with `--overwrite`.
 
 ## Monitoring and troubleshooting
 
@@ -173,7 +178,7 @@ ls ${ECF_HOME}   # {COMROOT}/{pslot}/logs/
 | Symptom | Likely cause |
 |---------|--------------|
 | `Duplicate .ecf source name` | Two scripts with the same file name in `dev/ecflow/scripts/` |
-| `head.h` not found in the job | `ECF_INCLUDE` points to a missing directory, see the note above |
+| `Could not open include file ... head.h` | `ECF_INCLUDE` does not point at `dev/ecflow/include`; regenerate with `--overwrite` |
 | Member product task never starts | Check the rewritten `memNNN` trigger in the `.def` |
 | `atmos_ensstat` never starts | One member product family is incomplete |
 | Python import errors | Run `source dev/ush/load_modules.sh setup` first |

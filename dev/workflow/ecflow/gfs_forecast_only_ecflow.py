@@ -312,41 +312,6 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         scaled['walltime'] = Tasks.multiply_HMS(resources['walltime'], group_size)
         return scaled
 
-    def _sbatch_header(self, resources: Dict, task_name: str) -> str:
-        """Generate ``#SBATCH`` directive lines for a task.
-
-        Parameters
-        ----------
-        resources : dict
-            Resource dict from ``get_resource()``.
-        task_name : str
-            Used for the ``--job-name``.
-
-        Returns
-        -------
-        str
-            Multi-line string of ``#SBATCH`` directives (no shebang).
-        """
-        run = self._run
-        cyc = self._base['SDATE_GFS'].strftime('%H')
-        account = resources.get('account', '')
-        if not account or account == 'UNDEFINED':
-            account = os.environ.get('HPC_ACCOUNT', 'fv3-cpu')
-
-        lines = [
-            f"#SBATCH --job-name={run}_{task_name}_{cyc}",
-            f"#SBATCH --account={account}",
-            f"#SBATCH --partition={resources['partition']}",
-            f"#SBATCH --time={resources['walltime']}",
-            f"#SBATCH --nodes={resources['nodes']}",
-            f"#SBATCH --ntasks-per-node={resources['ppn']}",
-            f"#SBATCH --cpus-per-task={resources['threads']}",
-            "#SBATCH --output=%ECF_JOBOUT%",
-        ]
-        if resources.get('native'):
-            lines.append(f"#SBATCH {resources['native']}")
-        return '\n'.join(lines)
-
     def _emit_simple_task(self, task_dict: Dict, indent: int) -> List[str]:
         """Emit a single non-product task node."""
         sp = ' ' * indent
@@ -484,12 +449,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             hdr_file = headers_dir / f'{dest_name}.hdr'
             hdr_file.write_text(sbatch + '\n')
 
-            # Insert #SBATCH directives after the #!/bin/bash shebang
-            if content.startswith('#!/bin/bash\n'):
-                content = '#!/bin/bash\n' + sbatch + '\n' + content[len('#!/bin/bash\n'):]
-            else:
-                content = '#!/bin/bash\n' + sbatch + '\n' + content
-
+            content = self._insert_sbatch(content, sbatch)
             dest.write_text(content)
 
         # Write manifest

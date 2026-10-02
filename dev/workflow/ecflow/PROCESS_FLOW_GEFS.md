@@ -73,12 +73,14 @@ _create_ecf_scripts()
   |     rglob("*.ecf") -> {name: "product/atmos/atmos_prod", ...}
   |     duplicate name -> ValueError
   |
-  +-- copy every indexed script flat:      ecf_scripts/<name>.ecf
+  +-- mirror every indexed script at its repo path:
+  |     ecf_scripts/product/atmos/atmos_prod.ecf
   |
-  +-- for each (label, source_name) in _copy_map:
-  |     label == source_name  -> already copied flat
-  |     label != source_name  -> ecf_scripts/<source_name>/<label>.ecf
-  |                              e.g. fcst/seg0.ecf, atmos_prod/f000_f024.ecf
+  +-- for each ((label, source, family), resources) in _copy_map:
+  |     copy to ecf_scripts/<repo dir>/[<family>/]<label>.ecf with
+  |     #SBATCH directives from _sbatch_header() inserted after the shebang
+  |     e.g. forecast/fcst_member/seg0.ecf,
+  |          product/atmos/atmos_prod/f000_f024.ecf
   |
   +-- write ecf_scripts.manifest
 ```
@@ -111,14 +113,15 @@ ecflow_client --begin=my_gefs_test
   +-- server finds a queued task whose trigger is complete
   |     (e.g. /my_gefs_test/gefs/2021032312/atmos_prod/mem001/f000_f024)
   |
-  +-- resolve script:  ECF_FILES (family scoped) + task name + .ecf
-  |     -> ecf_scripts/atmos_prod/f000_f024.ecf
+  +-- resolve script:  ECF_FILES edit on the atmos_prod family + task name
+  |     -> ecf_scripts/product/atmos/atmos_prod/f000_f024.ecf
   |
   +-- preprocess %include <head.h>, %FHR_LIST%, %ENSMEM:% ... -> .job
   |
   +-- ECF_JOB_CMD:  sbatch <job>
   |
   +-- on the compute node:
+  |     #SBATCH    resources baked in by _sbatch_header()
   |     head.h     ecflow_client --init, trap errors
   |     task body  load_modules.sh run, export ENSMEM / MEMDIR,
   |                loop over FHR_LIST, call dev/jobs/JGLOBAL_ATMOS_PRODUCTS
