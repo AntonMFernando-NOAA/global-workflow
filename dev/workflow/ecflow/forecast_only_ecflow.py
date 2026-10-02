@@ -11,9 +11,13 @@ in a ``family fcst_member`` with per-member sub-families.
 The ``.def`` hierarchy for ensemble runs::
 
     suite {pslot}
-      family {run}
-        family {cycle}
-          task stage_ic
+      family {cycle}
+        family {run}
+          family init
+            task stage_ic
+            task waveinit
+            task prep_emissions
+          endfamily
           task fcst                          # control (mem000)
           family fcst_member                    # per-member segmented forecasts
             family mem001
@@ -36,7 +40,9 @@ The ``.def`` hierarchy for ensemble runs::
     endsuite
 
 For non-ensemble runs, the ``family fcst_member`` layer is absent and
-tasks appear directly under the cycle family.
+tasks appear directly under the run family.  The cycle family is the
+parent of every run (gefs, gfs, gdas, ...) so several systems can share
+one cycle.
 """
 
 import os
@@ -57,6 +63,10 @@ _SENTINEL_MAP = {
     '__ALL_MEMBER_ATMOS_PROD__': 'atmos_prod',
     '__ALL_MEMBER_WAVEPOSTGRIDDED__': 'wavepostgridded',
 }
+
+
+# Tasks grouped in ``family init`` (relative script dir is looked up by name)
+_INIT_TASKS = ('stage_ic', 'waveinit', 'prep_emissions')
 
 
 class ForecastOnlyEcFlowSuite(EcFlowSuite):
@@ -111,6 +121,15 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         for task_name in self._task_names:
             all_tasks.append(self._tasks.get_ecflow_task(task_name))
 
+        # Triggers on init tasks need the full path since they live in
+        # family init, not next to the dependent task.
+        sdate = self._base['SDATE_GFS']
+        cycle_str = sdate.strftime('%Y%m%d%H')
+        self._run_path = f'/{suite_name}/{cycle_str}/{self._run}'
+        for td in all_tasks:
+            if td.get('trigger'):
+                td['trigger'] = self._qualify_init_trigger(td['trigger'])
+
         # Classify into pre-ensemble, ensemble, post-ensemble.
         # For non-ensemble runs (nmem == 0) everything lands in
         # pre_ensemble and the other two stay empty.
@@ -130,22 +149,32 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._suite_variables(indent=2)
         lines.append('')
 
-        # ── RUN family ────────────────────────────────────────────────
-        indent = 2
-        lines.append(f'{" " * indent}family {self._run}')
-        indent = 4
-        lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
-        lines.append('')
-
         # ── Cycle family ──────────────────────────────────────────────
-        sdate = self._base['SDATE_GFS']
-        cycle_str = sdate.strftime('%Y%m%d%H')
-        self._cycle_path = f'/{suite_name}/{self._run}/{cycle_str}'
+        indent = 2
         lines.append(f'{" " * indent}family {cycle_str}')
-        indent = 6
+        indent = 4
         lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
         lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
         lines.append('')
+
+        # ── RUN family (gefs, gfs, gdas, ...) ─────────────────────────
+        lines.append(f'{" " * indent}family {self._run}')
+        indent = 6
+        lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
+        lines.append('')
+
+        # ── Init family ───────────────────────────────────────────────
+        init_tasks = [td for td in pre_ensemble
+                      if td['task_name'] in _INIT_TASKS]
+        pre_ensemble = [td for td in pre_ensemble
+                        if td['task_name'] not in _INIT_TASKS]
+        if init_tasks:
+            lines.append(f'{" " * indent}family init')
+            for td in init_tasks:
+                lines += self._emit_task(td, indent + 2)
+                lines.append('')
+            lines.append(f'{" " * indent}endfamily')
+            lines.append('')
 
         # ── Pre-ensemble tasks ────────────────────────────────────────
         for td in pre_ensemble:
@@ -166,7 +195,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                     fcst_ens_tasks[0], indent)
                 lines.append('')
 
-            # Emit per-member product/simple task families at cycle level.
+            # Emit per-member product/simple task families at run level.
             for td in member_tasks:
                 lines += self._emit_per_member_task(td, indent)
                 lines.append('')
@@ -185,11 +214,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines += self._emit_task(td, indent)
             lines.append('')
 
-        # Close cycle, run, suite
-        indent = 4
-        lines.append(f'{" " * indent}endfamily')
-        indent = 2
-        lines.append(f'{" " * indent}endfamily')
+        # Close run, cycle, suite
+        lines.append(f'{" " * 4}endfamily')
+        lines.append(f'{" " * 2}endfamily')
         lines.append('endsuite')
         lines.append('')
 
@@ -201,6 +228,17 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         logger.info(f'ecFlow suite definition written to {def_file}')
         self._create_ecf_scripts()
         return def_file
+
+    def _qualify_init_trigger(self, trigger: str) -> str:
+        """Prefix references to init tasks with their absolute path."""
+        parts = []
+        for part in trigger.split(' and '):
+            part = part.strip()
+            name = part.split(' ')[0]
+            if name in _INIT_TASKS:
+                part = part.replace(name, f'{self._run_path}/init/{name}', 1)
+            parts.append(part)
+        return ' and '.join(parts)
 
     # ── Task classification ───────────────────────────────────────────
 
@@ -285,7 +323,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _emit_per_member_task(self, td: Dict, indent: int) -> List[str]:
         """Emit a per-member task as a family with member sub-families.
 
-        Produces at the cycle level::
+        Produces at the run level::
 
             family atmos_prod
               family mem000
@@ -403,7 +441,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         Uses absolute paths from the suite root since ecFlow does not
         reliably support multi-level ``../../`` relative references.
         """
-        cycle_path = self._cycle_path
+        run_path = self._run_path
 
         parts = trigger.split(' and ')
         rewritten = []
@@ -414,11 +452,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             if node_name == 'fcst':
                 if mem == 0:
                     rewritten.append(part.replace(
-                        'fcst', f'{cycle_path}/fcst'))
+                        'fcst', f'{run_path}/fcst'))
                 else:
                     rewritten.append(part.replace(
                         'fcst',
-                        f'{cycle_path}/fcst_member/mem{mem:03d}'))
+                        f'{run_path}/fcst_member/mem{mem:03d}'))
             else:
                 rewritten.append(part)
 
@@ -429,17 +467,17 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _resolve_sentinel(self, sentinel: str) -> str:
         """Resolve a sentinel to per-member trigger expressions.
 
-        Products are at cycle level: ``{cycle_path}/{task_name}/memNNN``.
+        Products are at run level: ``{run_path}/{task_name}/memNNN``.
         """
         family_name = _SENTINEL_MAP.get(sentinel)
         if not family_name:
             return sentinel
 
-        cycle_path = self._cycle_path
+        run_path = self._run_path
         parts = []
         for mem in range(0, self._nmem + 1):
             parts.append(
-                f'{cycle_path}/{family_name}/mem{mem:03d} == complete')
+                f'{run_path}/{family_name}/mem{mem:03d} == complete')
         return ' and '.join(parts)
 
     @staticmethod
@@ -448,7 +486,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         """Rewrite triggers for post-ensemble tasks.
 
         Per-member product families (``atmos_prod``, ``ocean_prod``, etc.)
-        are now cycle-level siblings, so ``atmos_prod == complete``
+        are now run-level siblings, so ``atmos_prod == complete``
         correctly triggers when all members inside the family finish.
         ``fcst_ens == complete`` triggers when all member forecasts finish.
         No rewriting needed — ecFlow family completion handles it.

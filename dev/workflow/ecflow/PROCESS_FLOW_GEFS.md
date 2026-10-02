@@ -53,7 +53,7 @@ setup_workflow.main([EXPDIR, "ecflow"])
         |     ensemble       : fcst_member + per-member product/simple tasks
         |     post-ensemble  : after the ensemble block
         |
-        +-- emit suite / run / cycle families and edit variables
+        +-- emit suite / cycle / run families (init tasks go in family init) and edit variables
         |
         +-- pre-ensemble   -> _emit_task()  (simple | segmented | product)
         +-- ensemble       -> _emit_fcst_ens_family()   family fcst_member/memNNN/segN
@@ -89,11 +89,11 @@ _create_ecf_scripts()
 
 ```
 my_gefs_test
-  gefs
-    2021032312
-      stage_ic
+  2021032312
+    gefs
+      init: stage_ic, waveinit, prep_emissions
       fcst                       control member
-      fcst_member                trigger: stage_ic complete
+      fcst_member                trigger: init tasks complete
         mem001: seg0 -> seg1
         mem002: seg0 -> seg1
       atmos_prod                 ECF_FILES = ecf_scripts/atmos_prod
@@ -111,7 +111,7 @@ my_gefs_test
 ecflow_client --begin=my_gefs_test
   |
   +-- server finds a queued task whose trigger is complete
-  |     (e.g. /my_gefs_test/gefs/2021032312/atmos_prod/mem001/f000_f024)
+  |     (e.g. /my_gefs_test/2021032312/gefs/atmos_prod/mem001/f000_f024)
   |
   +-- resolve script:  ECF_FILES edit on the atmos_prod family + task name
   |     -> ecf_scripts/product/atmos/atmos_prod/f000_f024.ecf

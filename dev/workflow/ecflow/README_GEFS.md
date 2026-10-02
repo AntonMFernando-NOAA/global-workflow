@@ -54,10 +54,11 @@ app options, here S2SWA):
 
 ```
 suite my_gefs_test
-  family gefs
-    family 2021032312
-      task stage_ic
-      task waveinit / prep_emissions        (when enabled)
+  family 2021032312                         cycle (one per cycle, shared by runs)
+    family gefs                             run (gdas, gfs, ... can sit beside it)
+      family init
+        task stage_ic
+        task waveinit / prep_emissions      (when enabled)
       task fcst                             control forecast (mem000)
       family fcst_member                    perturbed members
         family mem001   (task seg0, seg1, ...)
@@ -75,7 +76,9 @@ suite my_gefs_test
 How tasks are placed (`ForecastOnlyEcFlowSuite._classify_tasks`):
 
 - Tasks before the first `ensemble_task` are **pre-ensemble** and are
-  emitted directly under the cycle family.
+  emitted directly under the run family. `stage_ic`, `waveinit` and
+  `prep_emissions` are grouped in `family init`; triggers that depend on
+  them use the full path (`/<suite>/<cycle>/gefs/init/stage_ic`).
 - `fcst_member` becomes one `family fcst_member` with a family per
   perturbed member and one task per forecast segment (`seg0`, `seg1`).
 - Other `ensemble_task` entries become a family per task with a
