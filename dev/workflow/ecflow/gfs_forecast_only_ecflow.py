@@ -56,8 +56,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         (currently only ``verbosity``).
     """
 
-    # Maps task names to script category subdirectories.
-    # Mirrors the layout of dev/ecflow/scripts/.
+    # Maps task names to category subdirectories in the experiment
+    # ecf_scripts/scripts/ tree (sources are found by name under
+    # dev/ecflow/scripts/).
     TASK_CATEGORY = {
         'stage_ic': 'init',
         'fetch': 'init',
@@ -429,20 +430,22 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             if hdr.is_file():
                 shutil.copy2(str(hdr), str(dest_include / hdr.name))
 
+        ecf_index = self.index_ecf_sources(src_dir)
+
         # Copy .ecf scripts with #SBATCH injection
         dest_scripts = base_dir / 'scripts'
         headers_dir = base_dir / 'sbatch_headers'
         headers_dir.mkdir()
         skipped = []
-        for dest_name, (src_name, src_cat, dest_subdir, resources) in self._copy_map.items():
+        for dest_name, (src_name, _src_cat, dest_subdir, resources) in self._copy_map.items():
             dest_dir = dest_scripts / dest_subdir
             dest_dir.mkdir(parents=True, exist_ok=True)
 
             dest = dest_dir / f'{dest_name}.ecf'
-            src = src_dir / src_cat / f'{src_name}.ecf'
-            if not src.is_file():
-                skipped.append(f'{src_cat}/{src_name}.ecf')
+            if src_name not in ecf_index:
+                skipped.append(f'{src_name}.ecf')
                 continue
+            src = src_dir / f'{ecf_index[src_name]}.ecf'
 
             content = src.read_text()
             sbatch = self._sbatch_header(resources, dest_name)
@@ -463,8 +466,9 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         manifest = base_dir / 'ecf_scripts.manifest'
         with open(manifest, 'w') as fh:
             fh.write(f'# ECF_SRC_DIR={self._ecf_src_dir}\n')
-            for dest_name, (src_name, src_cat, dest_subdir, _res) in sorted(self._copy_map.items()):
-                fh.write(f'{dest_subdir}/{dest_name}\t{src_cat}/{src_name}\n')
+            for dest_name, (src_name, _src_cat, dest_subdir, _res) in sorted(self._copy_map.items()):
+                if src_name in ecf_index:
+                    fh.write(f'{dest_subdir}/{dest_name}\t{ecf_index[src_name]}\n')
 
         copied = len(self._copy_map) - len(skipped)
         logger.info(f'Copied {copied} .ecf files to {base_dir}')

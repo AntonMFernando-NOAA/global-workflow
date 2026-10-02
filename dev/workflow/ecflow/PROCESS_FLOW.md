@@ -152,7 +152,7 @@ c48_atm_ecflow.py                              ← entry point
       │                 └── _create_ecf_scripts()
       │                       creates {EXPDIR}/ecf_scripts/include/ + scripts/{category}/
       │                       copies dev/ecflow/include/ → include/
-      │                       copies dev/ecflow/scripts/{category}/*.ecf → scripts/{category}/
+      │                       copies dev/ecflow/scripts/**/{task}.ecf (found by name) → scripts/{category}/
       │                       injects resolved #SBATCH directives after #!/bin/bash
       │                       product family children get copies of parent .ecf
       │                       writes ecf_scripts.manifest

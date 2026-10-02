@@ -608,9 +608,12 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         import shutil
         from collections import defaultdict
 
+        ecf_index = self.index_ecf_sources(src_dir)
+
         # Copy all source .ecf files by original name at top level.
-        for src in sorted(src_dir.glob('*.ecf')):
-            shutil.copy2(str(src), str(scripts_dir / src.name))
+        for name, rel_path in ecf_index.items():
+            shutil.copy2(str(src_dir / f'{rel_path}.ecf'),
+                         str(scripts_dir / f'{name}.ecf'))
 
         # Group copy map entries by dest (task label) to detect collisions,
         # and collect every src that needs a subdirectory.
@@ -620,9 +623,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         for dest_name, src_names in by_task.items():
             for src_name in src_names:
-                src = src_dir / f'{src_name}.ecf'
-                if not src.is_file():
+                if src_name not in ecf_index:
                     continue
+                src = src_dir / f'{ecf_index[src_name]}.ecf'
                 if src_name == dest_name:
                     # Same name — flat copy at top level.
                     dest = scripts_dir / f'{dest_name}.ecf'
