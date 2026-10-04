@@ -63,22 +63,27 @@ suite my_gefs_test
       family fcst_member                    perturbed members
         family mem001   (task seg0, seg1, ...)
         family mem002
-      family atmos_prod                     one family per product
-        family mem000   (task f000_f024, ...)
-        family mem001
-        family mem002
-      family ocean_prod / ice_prod / wavepostgridded ...
-      task atmos_ensstat                    triggered by all members
-      task wave_stat, wave_stat_pnt
-      task arch_vrfy, arch_tars, cleanup
+      family products                       one family per product
+        family atmos_prod
+          family mem000   (task f000_f024, ...)
+          family mem001
+          family mem002
+        family ocean_prod / ice_prod / wavepostgridded ...
+      family stats
+        task atmos_ensstat                  triggered by all members
+        task wave_stat, wave_stat_pnt
+      family post
+        task arch_vrfy, arch_tars, cleanup
 ```
 
 How tasks are placed (`ForecastOnlyEcFlowSuite._classify_tasks`):
 
 - Tasks before the first `ensemble_task` are **pre-ensemble** and are
   emitted directly under the run family. `stage_ic`, `waveinit` and
-  `prep_emissions` are grouped in `family init`; triggers that depend on
-  them use the full path (`/<suite>/<cycle>/gefs/init/stage_ic`).
+  `prep_emissions` are grouped in `family init`. Product, stats and
+  archive/cleanup tasks are grouped in `products`, `stats` and `post`
+  (see `_TASK_FAMILY`). Triggers on grouped tasks use the full path,
+  for example `/<suite>/<cycle>/gefs/init/stage_ic`.
 - `fcst_member` becomes one `family fcst_member` with a family per
   perturbed member and one task per forecast segment (`seg0`, `seg1`).
 - Other `ensemble_task` entries become a family per task with a

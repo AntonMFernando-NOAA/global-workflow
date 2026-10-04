@@ -53,7 +53,7 @@ setup_workflow.main([EXPDIR, "ecflow"])
         |     ensemble       : fcst_member + per-member product/simple tasks
         |     post-ensemble  : after the ensemble block
         |
-        +-- emit suite / cycle / run families (init tasks go in family init) and edit variables
+        +-- emit suite / cycle / run families (tasks grouped in init/products/stats/post) and edit variables
         |
         +-- pre-ensemble   -> _emit_task()  (simple | segmented | product)
         +-- ensemble       -> _emit_fcst_ens_family()   family fcst_member/memNNN/segN
@@ -96,13 +96,17 @@ my_gefs_test
       fcst_member                trigger: init tasks complete
         mem001: seg0 -> seg1
         mem002: seg0 -> seg1
-      atmos_prod                 ECF_FILES = ecf_scripts/atmos_prod
-        mem000: f000_f024 ...    trigger: that member's forecast
-        mem001: f000_f024 ...
-        mem002: f000_f024 ...
-      ocean_prod, ice_prod, wavepostgridded ...   same shape
-      atmos_ensstat              trigger: all member atmos_prod complete
-      arch_vrfy -> arch_tars -> cleanup
+      products
+        atmos_prod               ECF_FILES = ecf_scripts/product/atmos/atmos_prod
+          mem000: f000_f024 ...  trigger: that member's forecast
+          mem001: f000_f024 ...
+          mem002: f000_f024 ...
+        ocean_prod, ice_prod, wavepostgridded ...   same shape
+      stats
+        atmos_ensstat            trigger: all member atmos_prod complete
+        wave_stat, wave_stat_pnt
+      post
+        arch_vrfy -> arch_tars -> cleanup
 ```
 
 ## Step 5: Run a task
@@ -111,7 +115,7 @@ my_gefs_test
 ecflow_client --begin=my_gefs_test
   |
   +-- server finds a queued task whose trigger is complete
-  |     (e.g. /my_gefs_test/2021032312/gefs/atmos_prod/mem001/f000_f024)
+  |     (e.g. /my_gefs_test/2021032312/gefs/products/atmos_prod/mem001/f000_f024)
   |
   +-- resolve script:  ECF_FILES edit on the atmos_prod family + task name
   |     -> ecf_scripts/product/atmos/atmos_prod/f000_f024.ecf
