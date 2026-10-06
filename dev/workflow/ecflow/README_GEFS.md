@@ -95,8 +95,8 @@ How tasks are placed (`ForecastOnlyEcFlowSuite._classify_tasks`):
   every member's product family.
 
 See `_emit_task` in
-[forecast_only_ecflow.py](forecast_only_ecflow.py) for the three task
-shapes (simple task, segmented family, product family).
+[forecast_only_ecflow.py](forecast_only_ecflow.py) for the four task
+shapes (simple task, segmented family, product family, tarball family).
 
 ## How scripts are located (nested source tree)
 

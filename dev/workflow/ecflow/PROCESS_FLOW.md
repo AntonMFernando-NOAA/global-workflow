@@ -103,14 +103,14 @@ run_ecflow_case.py                              ← entry point
       │           │     │     config.base → config.fcst → config.resources → ...
       │           │     │     each config sourced in bash subshell, vars captured as Python dict
       │           │     └── resolves task_names list:
-      │           │           [stage_ic, fcst, atmos_prod, tracker, genesis, arch_vrfy, cleanup]
+      │           │           [stage_ic, fcst, atmos_prod, tracker, genesis, arch_vrfy, (metp), (arch_tars), cleanup]
       │           │
       │           ├── ecflow_suite_factory.create("gfs_forecast-only", app_config, ecflow_config)
       │           │     │   (dev/workflow/ecflow/ecflow_suite_factory.py)
-      │           │     └── returns GFSForecastOnlyEcFlowSuite instance
+      │           │     └── returns ForecastOnlyEcFlowSuite instance
       │           │
       │           └── suite.write()
-      │                 │   (dev/workflow/ecflow/gfs_forecast_only_ecflow.py)
+      │                 │   (dev/workflow/ecflow/forecast_only_ecflow.py)
       │                 │
       │                 ├── __init__():
       │                 │     ecflow_tasks_factory.create("gfs", app_config, "gfs")
@@ -146,15 +146,11 @@ run_ecflow_case.py                              ← entry point
       │                 │
       │                 ├── writes EXPDIR/my_C48_test.def
       │                 │
-      │                 ├── creates ECF_HOME/my_C48_test/2021032312/gfs/ directories
-      │                 │     (so ecflow_server can write .job files)
-      │                 │
       │                 └── _create_ecf_scripts()
-      │                       creates {EXPDIR}/ecf_scripts/include/ + scripts/{category}/
-      │                       copies dev/ecflow/include/ → include/
-      │                       copies dev/ecflow/scripts/**/{task}.ecf (found by name) → scripts/{category}/
+      │                       creates {EXPDIR}/ecf_scripts/ mirroring dev/ecflow/scripts/
+      │                       copies dev/ecflow/scripts/**/{task}.ecf (found by name) to the same relative path
       │                       injects resolved #SBATCH directives after #!/bin/bash
-      │                       product family children get copies of parent .ecf
+      │                       product and arch_tars family children get per-child copies
       │                       writes ecf_scripts.manifest
       │
       ├── [Step 3/4] load_suite(suite_name, def_file)
@@ -185,12 +181,12 @@ ecflow_server (on uecflow01) finds:
   /my_C48_test/2021032312/gfs/stage_ic (triggers satisfied)
 │
 ├── reads EXPDIR/ecf_scripts/stage_ic.ecf
-│     %include <head.h>      → ecf_scripts/include/head.h
-│     %include <envir.h>     → ecf_scripts/include/envir.h
+│     %include <head.h>      → dev/ecflow/include/head.h
+│     %include <envir.h>     → dev/ecflow/include/envir.h
 │     export HOMEglobal=%HOMEglobal%
 │     export PDY=%PDY%
 │     ...
-│     %include <tail.h>      → ecf_scripts/include/tail.h
+│     %include <tail.h>      → dev/ecflow/include/tail.h
 │
 ├── preprocesses: replaces all %VAR% with .def values
 │     %HOMEglobal% → /scratch3/.../global-workflow

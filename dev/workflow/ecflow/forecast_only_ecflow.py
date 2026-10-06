@@ -672,6 +672,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         for child, tarball_type in task_dict['children'].items():
             self._copy_map[(child, task_name, task_name)] = res
             lines.append(f'{fsp}task {child}')
+            lines.append(f"{tsp}edit TASK '{child}'")
             lines.append(f"{tsp}edit TARBALL_TYPE '{tarball_type}'")
             lines.append('')
 
