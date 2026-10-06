@@ -9,14 +9,14 @@ when ``--yaml`` is not specified.
 Usage::
 
     # C48_ATM (default)
-    python3 dev/workflow/ecflow/c48_atm_ecflow.py
+    python3 dev/workflow/ecflow/run_ecflow_case.py
 
     # Any other case
-    python3 dev/workflow/ecflow/c48_atm_ecflow.py \\
+    python3 dev/workflow/ecflow/run_ecflow_case.py \\
         --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml
 
     # With overrides
-    python3 dev/workflow/ecflow/c48_atm_ecflow.py \\
+    python3 dev/workflow/ecflow/run_ecflow_case.py \\
         --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml \\
         --pslot my_gefs_test
 """

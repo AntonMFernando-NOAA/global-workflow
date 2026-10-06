@@ -18,6 +18,7 @@ with keys consumed by the suite generator::
         'step':         str,        # config.resources step name
         'trigger':      str | None, # ecFlow trigger expression
         'product_task': bool,       # True → emit as family with fhr children
+        'tarball_task': bool,       # True → emit as family with one child per tarball type
         'service_task': bool,       # True → service partition
         'component':    str | None, # 'atmos', 'ocean', 'ice', 'wave'
         'config':       str | None, # config step name (for product tasks)
@@ -103,6 +104,7 @@ class EcFlowTasks(Tasks):
             'step': step,
             'trigger': trigger,
             'product_task': False,
+            'tarball_task': False,
             'service_task': service,
             'component': None,
             'config': None,
@@ -150,8 +152,112 @@ class EcFlowTasks(Tasks):
             'step': step,
             'trigger': trigger,
             'product_task': True,
+            'tarball_task': False,
             'service_task': False,
             'component': component,
             'config': config,
             'forecast_hours': fhrs,
         }
+
+    def _tarball_task(self, task_name: str, *,
+                      jjob: str,
+                      tarball_types: List[str],
+                      trigger: Optional[str] = None,
+                      resource_name: Optional[str] = None) -> Dict:
+        """
+        Build a tarball ecFlow task dict (emitted as a family with one
+        ``arch_tar_{tarball_type}`` child per tarball type, like the
+        Rocoto ``arch_tars`` metatask).
+
+        Parameters
+        ----------
+        task_name : str
+            Logical task name (becomes the family name).
+        jjob : str
+            J-Job script basename.
+        tarball_types : list of str
+            Tarball types; each child sets ``TARBALL_TYPE`` to one of them.
+        trigger : str, optional
+            ecFlow trigger expression, applied on the family.
+        resource_name : str, optional
+            Config step name for ``get_resource()``.  Defaults to
+            *task_name*.
+        """
+        resources = self.get_resource(resource_name or task_name)
+        step = resource_name or task_name
+        return {
+            'task_name': task_name,
+            'jjob': jjob,
+            'resources': resources,
+            'step': step,
+            'trigger': trigger,
+            'product_task': False,
+            'tarball_task': True,
+            'service_task': False,
+            'component': None,
+            'config': None,
+            'forecast_hours': None,
+            'children': {f'arch_tar_{t}': t for t in tarball_types},
+        }
+
+    def _get_tarball_types(self) -> List[str]:
+        """
+        Determine the list of tarball types for the arch_tars task.
+
+        Mirrors rocoto/gfs_tasks.py arch_tars() logic.
+        """
+        if self.run == 'gfs':
+            tarball_types = ['gfsa', 'gfsb']
+
+            if self._configs['arch_tars'].get('ARCH_GAUSSIAN', True):
+                tarball_types.extend(['gfs_flux', 'gfs_netcdfb', 'gfs_pgrb2b'])
+                if self.app_config.mode == 'cycled':
+                    tarball_types.append('gfs_netcdfa')
+
+            if self.options['do_wave']:
+                tarball_types.append('gfswave')
+
+            if self.options['do_aero_fcst']:
+                tarball_types.append('chem')
+
+            if self.options['do_ocean']:
+                tarball_types.extend(['ocean_6hravg', 'ocean_native', 'gfs_flux_1p00'])
+                if self.options.get('do_jediocnvar', False) and self.app_config.mode == 'cycled':
+                    tarball_types.append('gfsocean_analysis')
+
+            if self.options['do_ice']:
+                tarball_types.extend(['ice_6hravg', 'ice_native'])
+
+            if self.options['do_bufrsnd']:
+                tarball_types.append('gfs_downstream')
+
+            if self.app_config.mode == 'cycled':
+                tarball_types.append('gfs_restarta')
+
+        elif self.run == 'gdas':
+            tarball_types = ['gdas']
+
+            if self.options['do_ice']:
+                tarball_types.append('gdasice')
+
+            if self.options['do_ocean']:
+                tarball_types.append('gdasocean')
+                if self.options['do_jediocnvar'] and self.app_config.mode == 'cycled':
+                    tarball_types.append('gdasocean_analysis')
+
+            if self.options['do_wave']:
+                tarball_types.append('gdaswave')
+
+            if self.app_config.mode == 'cycled':
+                tarball_types.append('gdas_restarta')
+                tarball_types.append('gdas_restartb')
+                if self.options['do_ice']:
+                    tarball_types.append('gdasice_restart')
+                if self.options['do_ocean']:
+                    tarball_types.append('gdasocean_restart')
+                if self.options['do_wave']:
+                    tarball_types.append('gdaswave_restart')
+        else:
+            tarball_types = [self.run]
+
+        return tarball_types

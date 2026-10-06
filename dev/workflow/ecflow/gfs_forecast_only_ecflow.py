@@ -216,7 +216,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             cat = self.TASK_CATEGORY.get(task_name, 'post')
             td = self._tasks.get_ecflow_task(task_name)
             cat_dir = os.path.join(run_dir, cat)
-            if td['product_task']:
+            if td['product_task'] or td['tarball_task']:
                 os.makedirs(os.path.join(cat_dir, task_name), exist_ok=True)
             else:
                 os.makedirs(cat_dir, exist_ok=True)
@@ -268,9 +268,12 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         Render an ecFlow task dict into .def lines.
 
-        Dispatches to ``_emit_product_family`` for product tasks or
+        Dispatches to ``_emit_tarball_family`` for tarball tasks,
+        ``_emit_product_family`` for product tasks, or
         ``_emit_simple_task`` for all others.
         """
+        if task_dict['tarball_task']:
+            return self._emit_tarball_family(task_dict, indent)
         if task_dict['product_task']:
             return self._emit_product_family(task_dict, indent)
         return self._emit_simple_task(task_dict, indent)
@@ -374,6 +377,38 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
 
             lines.append(f'{fsp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
+            lines.append('')
+
+        lines.append(f'{sp}endfamily')
+
+        return lines
+
+    def _emit_tarball_family(self, task_dict: Dict, indent: int) -> List[str]:
+        """Emit a tarball task as a family with one child per tarball type."""
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)
+        tsp = ' ' * (indent + 4)
+        lines = []
+
+        task_name = task_dict['task_name']
+        trigger = task_dict['trigger']
+        category = self.TASK_CATEGORY.get(task_name, 'post')
+
+        lines.append(f'{sp}family {task_name}')
+        lines.append(f"{fsp}edit STEP '{task_dict['step']}'")
+
+        if trigger:
+            trigger = self._resolve_trigger(trigger, category, extra_depth=1)
+            lines.append(f'{fsp}trigger {trigger}')
+
+        lines.append('')
+
+        for child, tarball_type in task_dict['children'].items():
+            self._copy_map[child] = (task_name, category,
+                                     f'{category}/{task_name}', task_dict['resources'])
+
+            lines.append(f'{fsp}task {child}')
+            lines.append(f"{tsp}edit TARBALL_TYPE '{tarball_type}'")
             lines.append('')
 
         lines.append(f'{sp}endfamily')

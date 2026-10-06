@@ -234,10 +234,10 @@ If the ping fails, start the server per
 cd ${HOMEglobal}
 
 # Quick start (all defaults)
-python3 dev/workflow/ecflow/c48_atm_ecflow.py
+python3 dev/workflow/ecflow/run_ecflow_case.py
 
 # Or with custom paths
-python3 dev/workflow/ecflow/c48_atm_ecflow.py \
+python3 dev/workflow/ecflow/run_ecflow_case.py \
     --pslot my_C48_test \
     --comroot /scratch4/NCEPDEV/stmp/${USER}/COMROOT \
     --expdir /scratch3/NCEPDEV/global/${USER}/EXPDIR \
@@ -278,7 +278,7 @@ ecflow_client --force=queued /C48_ATM_ecflow/gfs/2021032312/<task_name>
 ### Rerun the whole suite from scratch
 
 ```bash
-python3 dev/workflow/ecflow/c48_atm_ecflow.py --overwrite
+python3 dev/workflow/ecflow/run_ecflow_case.py --overwrite
 ```
 
 ### Clean up after a run
@@ -316,7 +316,7 @@ reconnect.
 
 ```bash
 cd ${HOMEglobal}
-python3 dev/workflow/ecflow/c48_atm_ecflow.py
+python3 dev/workflow/ecflow/run_ecflow_case.py
 ```
 
 This will:
@@ -331,7 +331,7 @@ The suite is loaded but **not started**. The script prints the
 ### With custom paths
 
 ```bash
-python3 dev/workflow/ecflow/c48_atm_ecflow.py \
+python3 dev/workflow/ecflow/run_ecflow_case.py \
     --pslot my_C48_test \
     --comroot /scratch4/NCEPDEV/stmp/${USER}/COMROOT \
     --expdir /scratch3/NCEPDEV/global/${USER}/EXPDIR \
@@ -402,7 +402,7 @@ output data (COMROOT, RUNDIRS) rather than starting from scratch:
 ```bash
 # 1. Reload the .def — say "no" to cleaning EXPDIR/COMROOT
 #    so previous output is preserved, then "yes" to replace the suite
-python3 dev/workflow/ecflow/c48_atm_ecflow.py
+python3 dev/workflow/ecflow/run_ecflow_case.py
 
 # 2. Suspend the suite before beginning so nothing auto-runs
 ecflow_client --suspend /C48_ATM_ecflow
@@ -471,7 +471,7 @@ bash dev/workflow/ecflow/sync_ecf_scripts.sh \
 ### Regenerate the .def from scratch
 
 ```bash
-python3 dev/workflow/ecflow/c48_atm_ecflow.py --overwrite
+python3 dev/workflow/ecflow/run_ecflow_case.py --overwrite
 ```
 
 ## 6. Troubleshooting
@@ -588,10 +588,12 @@ grep DO_METP ${EXPDIR}/C48_ATM_ecflow/config.base
 grep DO_ARCHCOM ${EXPDIR}/C48_ATM_ecflow/config.base
 ```
 
-On Ursa, these should be set to `"NO"` by the platform guards
-in `config.base.j2`. If they show `"YES"`, the experiment was
-generated before the guards were added — regenerate with
-`--overwrite`.
+`DO_METP` is forced to `"NO"` on Hera, Orion and Derecho by a platform
+guard in `config.base.j2`, but not on Ursa. `DO_ARCHCOM` comes from
+`hosts/ursa.yaml` (`"YES"`, archiving to HPSS), so `arch_tars` is
+expected in the Ursa suite.
+If the values do not match, the experiment was generated before the
+change - regenerate with `--overwrite`.
 
 ## 7. Directory Layout
 
@@ -618,7 +620,7 @@ ${RUNTESTS}/
 The ecFlow engine mirrors the Rocoto architecture:
 
 ```
-Entry point:      c48_atm_ecflow.py
+Entry point:      run_ecflow_case.py
                        │
 Orchestrator:     load_ecflow_case.run()
                        │

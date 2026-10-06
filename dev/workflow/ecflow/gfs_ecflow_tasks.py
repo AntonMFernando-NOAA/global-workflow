@@ -111,7 +111,7 @@ class GFSEcFlowTasks(EcFlowTasks):
         return self._simple_task(
             'metp',
             jjob='JGFS_ATMOS_VERIFICATION',
-            trigger='atmos_prod == complete',
+            trigger='arch_vrfy == complete',
         )
 
     def postsnd(self):
@@ -222,10 +222,16 @@ class GFSEcFlowTasks(EcFlowTasks):
         )
 
     def arch_tars(self):
-        return self._simple_task(
+        deps = ['arch_vrfy == complete']
+        if self._has_task('metp'):
+            deps.append('metp == complete')
+        trigger = ' and '.join(deps)
+
+        return self._tarball_task(
             'arch_tars',
             jjob='JGLOBAL_ARCHIVE_TARS',
-            trigger='arch_vrfy == complete',
+            tarball_types=self._get_tarball_types(),
+            trigger=trigger,
         )
 
     def globus_arch(self):
@@ -238,6 +244,8 @@ class GFSEcFlowTasks(EcFlowTasks):
 
     def cleanup(self):
         deps = ['arch_vrfy == complete']
+        if self._has_task('metp'):
+            deps.append('metp == complete')
         if self._has_task('arch_tars'):
             deps.append('arch_tars == complete')
         if self._has_task('globus_arch'):

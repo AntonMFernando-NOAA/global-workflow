@@ -266,7 +266,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         return lines
 
     def _qualify_trigger(self, trigger: str) -> str:
-        """Use the full path for triggers on tasks that live in a family."""
+        """Use the full path for triggers on tasks that live in a family.
+
+        Tasks placed directly under the run family (for example ``fcst``
+        or ``tracker``) are also qualified for single-member runs, since
+        the dependent task may sit inside a family.  Ensemble runs keep
+        ``fcst`` bare because the member rewrite expects it.
+        """
         parts = []
         for part in trigger.split(' and '):
             part = part.strip()
@@ -275,6 +281,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             if family:
                 part = part.replace(
                     name, f'{self._run_path}/{family}/{name}', 1)
+            elif name in self._task_names and (
+                    self._nmem == 0 or name != 'fcst'):
+                part = part.replace(name, f'{self._run_path}/{name}', 1)
             parts.append(part)
         return ' and '.join(parts)
 
@@ -534,6 +543,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_task(self, task_dict: Dict, indent: int) -> List[str]:
         """Dispatch to the appropriate emitter."""
+        if task_dict.get('tarball_task', False):
+            return self._emit_tarball_family(task_dict, indent)
         if task_dict.get('product_task', False):
             return self._emit_product_family(task_dict, indent)
         num_segments = task_dict.get('num_segments', 1)
@@ -634,6 +645,34 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append(f'{fsp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
             lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
+            lines.append('')
+
+        lines.append(f'{sp}endfamily')
+        return lines
+
+    def _emit_tarball_family(self, task_dict: Dict,
+                             indent: int) -> List[str]:
+        """Emit a tarball task as a family with one child per tarball type."""
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)
+        tsp = ' ' * (indent + 4)
+
+        task_name = task_dict['task_name']
+        res = task_dict['resources']
+        trigger = task_dict.get('trigger')
+
+        lines = [f'{sp}family {task_name}',
+                 f"{fsp}edit TASK '{task_name}'"]
+        lines += self._ecf_files_edit(task_name, fsp, task_name)
+        if trigger:
+            lines.append(f'{fsp}trigger {trigger}')
+        lines += self._resource_edits(res, fsp)
+        lines.append('')
+
+        for child, tarball_type in task_dict['children'].items():
+            self._copy_map[(child, task_name, task_name)] = res
+            lines.append(f'{fsp}task {child}')
+            lines.append(f"{tsp}edit TARBALL_TYPE '{tarball_type}'")
             lines.append('')
 
         lines.append(f'{sp}endfamily')
