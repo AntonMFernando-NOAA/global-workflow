@@ -774,11 +774,16 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             shutil.rmtree(scripts_dir)
         scripts_dir.mkdir(parents=True)
 
+        # Manifest entries are (destination, source) paths relative to
+        # the ecf_scripts and source directories, without the extension.
+        manifest_entries = []
+
         ecf_index = self._ecf_index
         for rel_path in ecf_index.values():
             dest = scripts_dir / f'{rel_path}.ecf'
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src_dir / f'{rel_path}.ecf'), str(dest))
+            manifest_entries.append((rel_path, rel_path))
 
         for (label, src_name, scope_name), res in self._copy_map.items():
             if src_name not in ecf_index:
@@ -793,11 +798,16 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             sbatch = self._sbatch_header(res, label)
             (dest_dir / f'{label}.ecf').write_text(
                 self._insert_sbatch(content, sbatch))
+            dest_rel = (dest_dir / label).relative_to(scripts_dir)
+            manifest_entries.append((dest_rel.as_posix(), rel_path.as_posix()))
 
-        # Write manifest recording the source directory for sync.
+        # Write manifest recording the source directory and file mapping
+        # so sync_ecf_scripts.sh can refresh the scripts later.
         manifest = scripts_dir / 'ecf_scripts.manifest'
         with open(manifest, 'w') as fh:
             fh.write(f'# ECF_SRC_DIR={self._ecf_src_dir}\n')
+            for dest_rel, src_rel in manifest_entries:
+                fh.write(f'{dest_rel}\t{src_rel}\n')
 
         logger.info(f'Populated {scripts_dir} with .ecf files')
 

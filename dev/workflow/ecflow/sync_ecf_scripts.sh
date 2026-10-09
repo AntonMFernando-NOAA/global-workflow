@@ -1,9 +1,11 @@
 #!/bin/bash
 # Refresh the ecf_scripts directory from the repo source .ecf files.
 #
-# Reads ecf_scripts.manifest and per-task #SBATCH headers (written by
-# the .def generator), then reassembles each .ecf in the ECF_FILES
-# directory: shebang + sbatch_header + source body (minus shebang).
+# Reads ecf_scripts.manifest (written by the .def generator) and
+# reassembles each .ecf in the ECF_FILES directory.  Scripts that already
+# carry #SBATCH directives keep them: shebang + existing #SBATCH lines +
+# source body (minus shebang).  Scripts without #SBATCH lines are copied
+# as is.
 #
 # Run this after editing an .ecf template in the repo to pick up
 # changes without regenerating the full .def.
@@ -12,10 +14,9 @@
 #   sync_ecf_scripts.sh <ecf_scripts_dir>
 #
 # The manifest at <ecf_scripts_dir>/ecf_scripts.manifest contains:
-#   - Header line: # ECF_SRC_DIR=<path to repo ecflow/scripts>
-#   - One line per file: <category/dest_name>\t<category/source_name>
-#
-# Per-task #SBATCH headers live in <ecf_scripts_dir>/sbatch_headers/<task>.hdr.
+#   - Header line: # ECF_SRC_DIR=<path to repo dev/ecflow/scripts>
+#   - One line per file: <dest path>\t<source path>, both relative to
+#     their directories and without the .ecf extension
 #
 # Example:
 #   sync_ecf_scripts.sh /scratch3/.../EXPDIR/my_C48_test/ecf_scripts
@@ -29,8 +30,6 @@ fi
 
 ecf_dir="$1"
 manifest="${ecf_dir}/ecf_scripts.manifest"
-scripts_dir="${ecf_dir}/scripts"
-headers_dir="${ecf_dir}/sbatch_headers"
 
 if [[ ! -f "${manifest}" ]]; then
     echo "[ERROR] Manifest not found: ${manifest}" >&2
@@ -55,28 +54,33 @@ while IFS=$'\t' read -r dest_path source_path; do
     [[ "${dest_path}" =~ ^#.*$ || -z "${dest_path}" ]] && continue
 
     src="${src_dir}/${source_path}.ecf"
-    dest="${scripts_dir}/${dest_path}.ecf"
+    dest="${ecf_dir}/${dest_path}.ecf"
 
     if [[ ! -f "${src}" ]]; then
         echo "[WARN] Source not found, skipping: ${src}" >&2
         continue
     fi
 
-    task_name="${dest_path##*/}"
-    hdr="${headers_dir}/${task_name}.hdr"
-
     mkdir -p "$(dirname "${dest}")"
 
-    if [[ -f "${hdr}" ]]; then
+    # Directives written by the generator directly follow the shebang
+    sbatch_lines=""
+    if [[ -f "${dest}" ]]; then
+        sbatch_lines=$(awk 'NR > 1 { if ($0 ~ /^#SBATCH/) print; else exit }' "${dest}")
+    fi
+
+    if [[ -n "${sbatch_lines}" ]]; then
+        tmp="${dest}.tmp"
         {
             echo '#!/bin/bash'
-            cat "${hdr}"
+            echo "${sbatch_lines}"
             if head -1 "${src}" | grep -q '^#!/bin/bash'; then
                 tail -n +2 "${src}"
             else
                 cat "${src}"
             fi
-        } > "${dest}"
+        } > "${tmp}"
+        mv "${tmp}" "${dest}"
     else
         cp "${src}" "${dest}"
     fi
@@ -84,4 +88,4 @@ while IFS=$'\t' read -r dest_path source_path; do
     count=$((count + 1))
 done < "${manifest}"
 
-echo "[OK] Synced ${count} .ecf files to ${scripts_dir}"
+echo "[OK] Synced ${count} .ecf files to ${ecf_dir}"
