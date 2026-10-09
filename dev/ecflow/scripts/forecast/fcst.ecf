@@ -34,7 +34,7 @@ else
 fi
 
 export job="fcst"
-export FCST_SEGMENT=%FCST_SEGMENT%
+export FCST_SEGMENT="%FCST_SEGMENT:0%"
 
 "${HOMEglobal}/dev/jobs/JGLOBAL_FCST"
 status=$?
