@@ -320,9 +320,10 @@ class GEFSEcFlowTasks(EcFlowTasks):
         )
 
     def arch_tars(self):
-        return self._simple_task(
+        return self._tarball_task(
             'arch_tars',
             jjob='JGLOBAL_ARCHIVE_TARS',
+            tarball_types=self._get_tarball_types(),
             trigger='arch_vrfy == complete',
         )
 
