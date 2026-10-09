@@ -88,4 +88,11 @@ while IFS=$'\t' read -r dest_path source_path; do
     count=$((count + 1))
 done < "${manifest}"
 
+if [[ ${count} -eq 0 ]]; then
+    echo "[ERROR] No .ecf files were synced; the manifest lists no usable files." >&2
+    echo "  Regenerate the experiment (for example reload_ecflow_def.sh <EXPDIR> reload)" >&2
+    echo "  to rebuild ${manifest}." >&2
+    exit 1
+fi
+
 echo "[OK] Synced ${count} .ecf files to ${ecf_dir}"

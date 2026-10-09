@@ -12,7 +12,10 @@ export DATAROOT=%DATAROOT%
 export NET=%NET%
 export PDY=%PDY%
 export cyc=%CYC%
-export TARBALL_TYPE=%TARBALL_TYPE%
+TARBALL_TYPE_VAL="%TARBALL_TYPE:%"
+if [[ -n "${TARBALL_TYPE_VAL}" ]]; then
+  export TARBALL_TYPE="${TARBALL_TYPE_VAL}"
+fi
 export machine=URSA
 
 source "${HOMEglobal}/dev/ush/load_modules.sh" run
