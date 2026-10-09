@@ -392,6 +392,106 @@ ls ${COMROOT}/C48_ATM_ecflow/logs/
 ecflow_client --force=queued /C48_ATM_ecflow/gfs/2021032312/fcst
 ```
 
+### Rerun a job after changing code (reload and sync)
+
+ecFlow submits the `.ecf` scripts in `${EXPDIR}/ecf_scripts/`, not the
+copies in the repo. The repo copies in `dev/ecflow/scripts/` are
+templates that the generator copies (and adds `#SBATCH` headers to)
+when the experiment is generated. An edit in the repo therefore does
+not reach the experiment until you sync or regenerate it.
+
+Task paths follow the `.def`: `/<suite>/<cycle>/<run>/<family>/<task>`,
+for example `/C48_ATM_ecflow/2021032312/gfs/post/arch_tars`.
+
+Pick the row that matches what you changed:
+
+| What changed | What to do |
+|--------------|------------|
+| Only the body of an `.ecf` in `dev/ecflow/scripts/` | Sync, then rerun the task (Case A) |
+| J-jobs, ex-scripts, parm or other files under `HOMEglobal` | Nothing to sync. Rerun the task (Case A, step 3) |
+| Python suite generator, task names, triggers, resources or the tarball list | Regenerate and reload the suite (Case B) |
+
+**Case A: edited an `.ecf` body (suite stays loaded)**
+
+```bash
+EXPDIR=${RUNTESTS}/EXPDIR/C48_ATM_ecflow
+
+# 1. Copy the edited .ecf files into the experiment.  Existing #SBATCH
+#    headers are kept.
+bash dev/workflow/ecflow/sync_ecf_scripts.sh ${EXPDIR}/ecf_scripts
+
+# 2. Make sure the failed task is in a state that can be rerun
+ecflow_client --force=queued /C48_ATM_ecflow/2021032312/gfs/post/arch_tars
+
+# 3. Rerun it (--run ignores triggers and submits right away)
+ecflow_client --run /C48_ATM_ecflow/2021032312/gfs/post/arch_tars
+```
+
+Skip `--run` if you want ecFlow to submit the task itself once its
+triggers are met. `--run` cannot submit a job under a suspended node.
+
+`sync_ecf_scripts.sh` copies only the files listed in
+`ecf_scripts/ecf_scripts.manifest`. If it exits with "No .ecf files
+were synced", the experiment was generated before the manifest listed
+files. Regenerate it once (Case B, step 1) and sync will work afterward.
+
+**Case B: changed the generator, tasks, triggers or resources**
+
+The task set changed, so the suite on the server must be replaced.
+
+```bash
+S=/C48_ATM_ecflow
+EXPDIR=${RUNTESTS}/EXPDIR/C48_ATM_ecflow
+
+# 1. Regenerate the .def and ecf_scripts (does not touch the server)
+source dev/ush/load_modules.sh setup
+cd dev/workflow
+python3 -c "
+import sys; sys.path.insert(0, '.')
+from ecflow.load_ecflow_case import generate_ecflow_def
+from pathlib import Path
+generate_ecflow_def(Path('${EXPDIR}'))
+"
+cd -
+
+# 2. Replace the suite on the server
+ecflow_client --suspend ${S}
+ecflow_client --kill ${S}              # only if jobs are active
+ecflow_client --delete=force yes ${S}
+ecflow_client --load=${EXPDIR}/C48_ATM_ecflow.def
+```
+
+Loading does not begin the suite. To rerun only some jobs, do not
+simply begin it, because every task whose triggers are met (such as
+`stage_ic`) would start again. Follow "Resume a partial run" below,
+and mark everything you do not want to rerun as complete before
+resuming.
+
+Example: rerun only the `arch_tars` jobs.
+
+```bash
+C=${S}/2021032312/gfs
+
+ecflow_client --suspend ${S}
+ecflow_client --begin=C48_ATM_ecflow
+ecflow_client --force=complete recursive ${C}/init ${C}/fcst ${C}/tracker ${C}/genesis ${C}/products
+ecflow_client --force=complete ${C}/post/arch_vrfy
+ecflow_client --suspend ${C}/post/cleanup   # keep cleanup from running
+ecflow_client --resume ${S}                 # only arch_tars is now eligible
+ecflow_client --resume ${C}/post/cleanup    # when you want cleanup to run
+```
+
+Notes:
+
+- `--force=complete` marks a node complete without running it, so
+  nodes that depend on it become eligible. Use `recursive` to apply it
+  to a family and everything below it.
+- Without `recursive`, only the named node changes state.
+- If `--suspend` on an unbegun suite is rejected, begin first and
+  suspend immediately, or suspend `${C}/init` before beginning.
+- Alternatively `ecflow_client --replace ${S} <def>` swaps the suite in
+  one step, but check the task states in ecflow_ui afterward.
+
 ### Resume a partial run (keep previous output)
 
 If a run failed partway through and you want to reuse the existing
@@ -467,6 +567,9 @@ scancel -u ${USER}
 bash dev/workflow/ecflow/sync_ecf_scripts.sh \
     ${EXPDIR}/C48_ATM_ecflow/ecf_scripts
 ```
+
+See "Rerun a job after changing code" above for when this is enough
+and what to do when it reports that no files were synced.
 
 ### Regenerate the .def from scratch
 
