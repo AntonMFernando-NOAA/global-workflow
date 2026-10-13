@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 import os
+import re
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 from applications.applications import AppConfig
 from workflow_suite import WorkflowSuite
 from abc import ABC
@@ -48,7 +49,8 @@ class EcFlowSuite(WorkflowSuite, ABC):
             index[name] = src.relative_to(src_dir).with_suffix('').as_posix()
         return index
 
-    def _sbatch_header(self, resources: Dict, task_name: str) -> str:
+    def _sbatch_header(self, resources: Dict, task_name: str,
+                       run: str = None) -> str:
         """Generate ``#SBATCH`` directive lines for a task.
 
         Parameters
@@ -57,13 +59,15 @@ class EcFlowSuite(WorkflowSuite, ABC):
             Resource dict from ``get_resource()``.
         task_name : str
             Used for the ``--job-name``.
+        run : str, optional
+            Run the task belongs to; defaults to the selected run.
 
         Returns
         -------
         str
             Multi-line string of ``#SBATCH`` directives (no shebang).
         """
-        run = self._run
+        run = run or self._run
         cyc = self._base['SDATE_GFS'].strftime('%H')
         account = resources.get('account', '')
         if not account or account == 'UNDEFINED':
@@ -79,9 +83,35 @@ class EcFlowSuite(WorkflowSuite, ABC):
             f"#SBATCH --cpus-per-task={resources['threads']}",
             "#SBATCH --output=%ECF_JOBOUT%",
         ]
+        if resources.get('memory'):
+            memory_mb = self._memory_to_mb(resources['memory'])
+            if memory_mb:
+                lines.append(f"#SBATCH --mem={memory_mb}")
         if resources.get('native'):
             lines.append(f"#SBATCH {resources['native']}")
         return '\n'.join(lines)
+
+    @staticmethod
+    def _memory_to_mb(memory: str) -> Optional[int]:
+        """Convert a resource memory string such as ``96GB`` to megabytes.
+
+        Parameters
+        ----------
+        memory : str
+            Memory per node with an optional K, M, G or T unit, and an
+            optional ``:option`` suffix, which is ignored.
+
+        Returns
+        -------
+        int or None
+            Megabytes, or None when *memory* cannot be parsed.
+        """
+        match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*([KMGT]?)B?',
+                             str(memory).split(':')[0].strip(), re.IGNORECASE)
+        if not match:
+            return None
+        factor = {'K': 1 / 1024, 'M': 1, 'G': 1024, 'T': 1024 ** 2, '': 1}
+        return max(int(float(match.group(1)) * factor[match.group(2).upper()]), 1)
 
     @staticmethod
     def _insert_sbatch(content: str, sbatch: str) -> str:

@@ -298,14 +298,14 @@ platforms without modifying the host matrix:
 
 .. code-block:: yaml
 
-   # Example: dev/ci/cases/pr/C48_ATM_ecflow.yaml
+   # Example: dev/ci/cases/pr/C48_S2SWA_gefs_RT.yaml
    skip_ci_on_hosts:
      - wcoss2
      - hera
      - orion
 
 This is useful when a test case is defined globally but should not run on
-certain hosts — for example, a workflow engine that is only supported on a
+certain hosts — for example, a case that is only supported on a
 subset of platforms. The pipeline checks this list at runtime and skips the
 case on any matching host.
 

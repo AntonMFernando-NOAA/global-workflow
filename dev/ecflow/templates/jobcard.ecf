@@ -1,0 +1,29 @@
+#!/bin/bash
+# shellcheck disable=SC1009,SC1072,SC1073
+# Template for the tasks that run a Rocoto job card.  The suite generator
+# fills in the card name and the exported variables, and writes one
+# script per task.
+%include <head.h>
+%include <envir.h>
+
+set -x
+
+export HOMEglobal=%HOMEglobal%
+export EXPDIR=%EXPDIR%
+export COMROOT=%COMROOT%
+export DATAROOT=%DATAROOT%
+export NET=%NET%
+export PDY=%PDY%
+export cyc=%CYC%
+export machine=URSA
+__EXPORTS__
+
+# The job card loads its own modules and runs the J-job
+"${HOMEglobal}/dev/job_cards/rocoto/__CARD__.sh"
+status=$?
+if [[ ${status} -ne 0 ]]; then
+  ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT***"
+  exit "${status}"
+fi
+
+%include <tail.h>

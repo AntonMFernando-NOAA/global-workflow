@@ -78,6 +78,32 @@ _TASK_FAMILY = {
     'stage_ic': 'init',
     'waveinit': 'init',
     'prep_emissions': 'init',
+    'prep_sfc': 'analysis',
+    'prep': 'analysis',
+    'anal': 'analysis',
+    'analcalc': 'analysis',
+    'analdiag': 'analysis',
+    'sfcanl_gcycle': 'analysis',
+    'sfcanl_regrid': 'analysis',
+    'snowanl': 'analysis',
+    'atmanlupp': 'analysis',
+    'atmanlprod': 'analysis',
+    'prepoceanobs': 'analysis',
+    'marinebmatinit': 'analysis',
+    'marinebmat': 'analysis',
+    'marineanlinit': 'analysis',
+    'marineanlvar': 'analysis',
+    'marineanlchkpt': 'analysis',
+    'marineanlfinal': 'analysis',
+    'marineanlecen': 'analysis',
+    'eobs': 'analysis',
+    'ediag': 'analysis',
+    'eupd': 'analysis',
+    'ecen': 'analysis',
+    'echgres': 'analysis',
+    'esnowanl': 'analysis',
+    'esfc_gcycle': 'analysis',
+    'esfc_regrid': 'analysis',
     'atmos_prod': 'products',
     'ocean_prod': 'products',
     'ice_prod': 'products',
@@ -85,12 +111,19 @@ _TASK_FAMILY = {
     'atmos_ensstat': 'stats',
     'wave_stat': 'stats',
     'wave_stat_pnt': 'stats',
+    'vminmon': 'stats',
+    'fit2obs': 'stats',
+    'verfozn': 'stats',
+    'verfrad': 'stats',
+    'anlstat': 'stats',
     'arch_vrfy': 'post',
     'arch_tars': 'post',
+    'earc_vrfy': 'post',
+    'earc_tars': 'post',
     'globus_arch': 'post',
     'cleanup': 'post',
 }
-_FAMILY_ORDER = ('init', 'products', 'stats', 'post')
+_FAMILY_ORDER = ('init', 'analysis', 'products', 'stats', 'post')
 
 
 class ForecastOnlyEcFlowSuite(EcFlowSuite):
@@ -104,14 +137,31 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def __init__(self, app_config: AppConfig, ecflow_config: Dict) -> None:
         super().__init__(app_config, ecflow_config)
 
-        self._run = list(app_config.task_names.keys())[0]
-        self._task_names = app_config.task_names[self._run]
-        self._options = app_config.run_options[self._run]
-        self._configs = app_config.configs[self._run]
+        # Subdirectory of ecf_scripts holding the scripts of the selected
+        # run; empty when the suite has a single run.
+        self._ecf_prefix = ''
+        # {prefix: (run, copy_map)}
+        self._copy_maps: Dict[str, tuple] = {}
+        # {task name: (job card, variable names)} of the tasks whose script
+        # is generated from the job card template
+        self._card_tasks: Dict[str, tuple] = {}
+
+        self._select_run(list(app_config.task_names.keys())[0])
+
+    def _select_run(self, run: str) -> None:
+        """Point the per-run state at *run*."""
+        self._run = run
+        self._task_names = self._app_config.task_names[run]
+        self._options = self._app_config.run_options[run]
+        self._configs = self._app_config.configs[run]
         self._nmem = int(self._base.get('NMEM_ENS', 0))
 
-        self._tasks = ecflow_tasks_factory.create(
-            self._base['NET'], app_config, self._run)
+        self._tasks = self._create_tasks(run)
+
+    def _create_tasks(self, run: str):
+        """Return the ecFlow task object of *run*."""
+        return ecflow_tasks_factory.create(
+            self._base['NET'], self._app_config, run)
 
     # ── Public interface ──────────────────────────────────────────────
 
@@ -130,35 +180,10 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             def_file = os.path.join(self.expdir, f'{self.pslot}.def')
 
         suite_name = self.pslot
+        self._prepare_write()
 
-        self._ecf_scripts_dir = Path(self.expdir) / 'ecf_scripts'
-        self._ecf_src_dir = Path(
-            os.environ.get('ECF_FILES',
-                           os.path.join(self.HOMEglobal, 'dev', 'ecflow',
-                                        'scripts')))
-        # {(label, source_name, scope_dir_or_None): resources}
-        self._copy_map: Dict[tuple, Dict] = {}
-        self._ecf_index = self.index_ecf_sources(self._ecf_src_dir)
-
-        # Fetch all task dicts
-        all_tasks: List[Dict] = []
-        for task_name in self._task_names:
-            all_tasks.append(self._tasks.get_ecflow_task(task_name))
-
-        # Triggers on grouped tasks need the full path since they live in
-        # a family, not next to the dependent task.
         sdate = self._base['SDATE_GFS']
         cycle_str = sdate.strftime('%Y%m%d%H')
-        self._run_path = f'/{suite_name}/{cycle_str}/{self._run}'
-        for td in all_tasks:
-            if td.get('trigger'):
-                td['trigger'] = self._qualify_trigger(td['trigger'])
-
-        # Classify into pre-ensemble, ensemble, post-ensemble.
-        # For non-ensemble runs (nmem == 0) everything lands in
-        # pre_ensemble and the other two stay empty.
-        pre_ensemble, ensemble_tasks, post_ensemble = \
-            self._classify_tasks(all_tasks)
 
         lines: List[str] = []
         lines.append(f'# Auto-generated ecFlow suite definition for {suite_name}')
@@ -174,16 +199,79 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append('')
 
         # ── Cycle family ──────────────────────────────────────────────
-        indent = 2
-        lines.append(f'{" " * indent}family {cycle_str}')
-        indent = 4
-        lines.append(f'{" " * indent}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
-        lines.append(f'{" " * indent}edit CYC \'{sdate.strftime("%H")}\'')
+        lines.append(f'{" " * 2}family {cycle_str}')
+        lines.append(f'{" " * 4}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
+        lines.append(f'{" " * 4}edit CYC \'{sdate.strftime("%H")}\'')
         lines.append('')
 
         # ── RUN family (gefs, gfs, gdas, ...) ─────────────────────────
+        lines += self._emit_run_family(cycle_str, indent=4)
+
+        lines.append(f'{" " * 2}endfamily')
+        lines.append('endsuite')
+        lines.append('')
+
+        return self._finish_write(def_file, lines)
+
+    def _prepare_write(self) -> None:
+        """Set the script directories and the source index for a write."""
+        self._ecf_scripts_dir = Path(self.expdir) / 'ecf_scripts'
+        self._ecf_src_dir = Path(
+            os.environ.get('ECF_FILES',
+                           os.path.join(self.HOMEglobal, 'dev', 'ecflow',
+                                        'scripts')))
+        self._ecf_index = self.index_ecf_sources(self._ecf_src_dir)
+        self._copy_maps = {}
+        self._card_tasks = {}
+
+    def _finish_write(self, def_file: str, lines: List[str]) -> str:
+        """Write the ``.def`` file and populate the ecf_scripts directory."""
+        os.makedirs(os.path.dirname(def_file), exist_ok=True)
+        with open(def_file, 'w') as fh:
+            fh.write('\n'.join(lines))
+
+        logger.info(f'ecFlow suite definition written to {def_file}')
+        self._create_ecf_scripts()
+        return def_file
+
+    def _get_task_dicts(self, cycle_str: str) -> List[Dict]:
+        """Return the ecFlow task dicts of the selected run for a cycle."""
+        return [self._tasks.get_ecflow_task(task_name)
+                for task_name in self._task_names]
+
+    def _emit_run_family(self, cycle_str: str, indent: int) -> List[str]:
+        """Emit ``family {run}`` for the selected run and cycle.
+
+        Parameters
+        ----------
+        cycle_str : str
+            Cycle the run family belongs to (YYYYMMDDHH).
+        indent : int
+            Indentation of the ``family`` line; its content is indented
+            by two more spaces.
+        """
+        # {(label, source_name, scope_dir_or_None): resources}
+        self._copy_map = self._copy_maps.setdefault(
+            self._ecf_prefix, (self._run, {}))[1]
+
+        all_tasks = self._get_task_dicts(cycle_str)
+
+        # Triggers on grouped tasks need the full path since they live in
+        # a family, not next to the dependent task.
+        self._run_path = f'/{self.pslot}/{cycle_str}/{self._run}'
+        for td in all_tasks:
+            if td.get('trigger'):
+                td['trigger'] = self._qualify_trigger(td['trigger'])
+
+        # Classify into pre-ensemble, ensemble, post-ensemble.
+        # For non-ensemble runs (nmem == 0) everything lands in
+        # pre_ensemble and the other two stay empty.
+        pre_ensemble, ensemble_tasks, post_ensemble = \
+            self._classify_tasks(all_tasks)
+
+        lines: List[str] = []
         lines.append(f'{" " * indent}family {self._run}')
-        indent = 6
+        indent += 2
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
         lines.append('')
 
@@ -220,20 +308,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         lines += self._emit_grouped(entries, indent)
 
-        # Close run, cycle, suite
-        lines.append(f'{" " * 4}endfamily')
-        lines.append(f'{" " * 2}endfamily')
-        lines.append('endsuite')
-        lines.append('')
-
-        def_content = '\n'.join(lines)
-        os.makedirs(os.path.dirname(def_file), exist_ok=True)
-        with open(def_file, 'w') as fh:
-            fh.write(def_content)
-
-        logger.info(f'ecFlow suite definition written to {def_file}')
-        self._create_ecf_scripts()
-        return def_file
+        lines.append(f'{" " * (indent - 2)}endfamily')
+        return lines
 
     def _emit_grouped(self, entries: List[tuple], indent: int) -> List[str]:
         """Emit tasks, wrapping those with a family in that family.
@@ -543,8 +619,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
     def _emit_task(self, task_dict: Dict, indent: int) -> List[str]:
         """Dispatch to the appropriate emitter."""
+        self._register_card_task(task_dict)
         if task_dict.get('tarball_task', False):
             return self._emit_tarball_family(task_dict, indent)
+        if task_dict.get('group_task', False):
+            return self._emit_group_family(task_dict, indent)
         if task_dict.get('product_task', False):
             return self._emit_product_family(task_dict, indent)
         num_segments = task_dict.get('num_segments', 1)
@@ -567,6 +646,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                  f"{tsp}edit TASK '{task_name}'"]
         lines += self._ecf_files_edit(task_name, tsp)
         lines += self._resource_edits(res, tsp)
+        for name, value in task_dict.get('envars', {}).items():
+            lines.append(f"{tsp}edit {name} '{value}'")
         if trigger:
             lines.append(f'{tsp}trigger {trigger}')
 
@@ -679,7 +760,61 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{sp}endfamily')
         return lines
 
+    def _emit_group_family(self, task_dict: Dict, indent: int) -> List[str]:
+        """Emit a group task as a family with one child per group.
+
+        Each child sets its own variables (for example the forecast
+        hours or the ensemble member) and runs the script of the task.
+        """
+        sp = ' ' * indent
+        fsp = ' ' * (indent + 2)
+        tsp = ' ' * (indent + 4)
+
+        task_name = task_dict['task_name']
+        script = task_dict['script']
+        res = task_dict['resources']
+        trigger = task_dict.get('trigger')
+
+        lines = [f'{sp}family {task_name}',
+                 f"{fsp}edit TASK '{task_name}'"]
+        lines += self._ecf_files_edit(script, fsp, task_name)
+        if trigger:
+            lines.append(f'{fsp}trigger {trigger}')
+        lines += self._resource_edits(res, fsp)
+        lines.append('')
+
+        for child, envars in task_dict['children'].items():
+            self._copy_map[(child, script, task_name)] = res
+            lines.append(f'{fsp}task {child}')
+            lines.append(f"{tsp}edit TASK '{task_name}_{child}'")
+            for name, value in envars.items():
+                lines.append(f"{tsp}edit {name} '{value}'")
+            lines.append('')
+
+        lines.append(f'{sp}endfamily')
+        return lines
+
     # ── Script lookup ─────────────────────────────────────────────────
+
+    def _register_card_task(self, task_dict: Dict) -> None:
+        """Remember the tasks whose script is generated from the template.
+
+        A task runs its Rocoto job card when it names one, or when it has
+        no script and a job card of the same name exists.
+        """
+        task_name = task_dict['task_name']
+        card = task_dict.get('card')
+        if not card:
+            job_cards = Path(self.HOMEglobal) / 'dev' / 'job_cards' / 'rocoto'
+            has_script = task_dict.get('script', task_name) in self._ecf_index
+            if has_script or not (job_cards / f'{task_name}.sh').is_file():
+                return
+            card = task_name
+        envars = set(task_dict.get('envars', {}))
+        for child_envars in task_dict.get('children', {}).values():
+            if isinstance(child_envars, dict):
+                envars.update(child_envars)
+        self._card_tasks[task_name] = (card, sorted(envars))
 
     def _ecf_files_edit(self, src_name: str, indent_str: str,
                         scope_name: str = None) -> List[str]:
@@ -707,9 +842,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             One edit line, or an empty list when the script is unknown.
         """
         rel_path = self._ecf_index.get(src_name)
-        if rel_path is None:
+        if rel_path is None and src_name in self._card_tasks:
+            ecf_dir = self._ecf_scripts_dir / self._ecf_prefix / 'generic'
+        elif rel_path is None:
             return []
-        ecf_dir = self._ecf_scripts_dir / Path(rel_path).parent
+        else:
+            ecf_dir = (self._ecf_scripts_dir / self._ecf_prefix
+                       / Path(rel_path).parent)
         if scope_name:
             ecf_dir = ecf_dir / scope_name
         return [f"{indent_str}edit ECF_FILES '{ecf_dir}'"]
@@ -785,21 +924,27 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             shutil.copy2(str(src_dir / f'{rel_path}.ecf'), str(dest))
             manifest_entries.append((rel_path, rel_path))
 
-        for (label, src_name, scope_name), res in self._copy_map.items():
-            if src_name not in ecf_index:
-                continue
-            rel_path = Path(ecf_index[src_name])
-            dest_dir = scripts_dir / rel_path.parent
-            if scope_name:
-                dest_dir = dest_dir / scope_name
-            dest_dir.mkdir(parents=True, exist_ok=True)
+        for prefix, (run, copy_map) in self._copy_maps.items():
+            for (label, src_name, scope_name), res in copy_map.items():
+                if src_name not in ecf_index:
+                    if src_name in self._card_tasks:
+                        self._write_card_script(
+                            scripts_dir / prefix / 'generic', label,
+                            src_name, scope_name, res, run)
+                    continue
+                rel_path = Path(ecf_index[src_name])
+                dest_dir = scripts_dir / prefix / rel_path.parent
+                if scope_name:
+                    dest_dir = dest_dir / scope_name
+                dest_dir.mkdir(parents=True, exist_ok=True)
 
-            content = (src_dir / f'{rel_path}.ecf').read_text()
-            sbatch = self._sbatch_header(res, label)
-            (dest_dir / f'{label}.ecf').write_text(
-                self._insert_sbatch(content, sbatch))
-            dest_rel = (dest_dir / label).relative_to(scripts_dir)
-            manifest_entries.append((dest_rel.as_posix(), rel_path.as_posix()))
+                content = (src_dir / f'{rel_path}.ecf').read_text()
+                sbatch = self._sbatch_header(res, label, run)
+                (dest_dir / f'{label}.ecf').write_text(
+                    self._insert_sbatch(content, sbatch))
+                dest_rel = (dest_dir / label).relative_to(scripts_dir)
+                manifest_entries.append(
+                    (dest_rel.as_posix(), rel_path.as_posix()))
 
         # Write manifest recording the source directory and file mapping
         # so sync_ecf_scripts.sh can refresh the scripts later.
@@ -810,6 +955,25 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 fh.write(f'{dest_rel}\t{src_rel}\n')
 
         logger.info(f'Populated {scripts_dir} with .ecf files')
+
+    def _write_card_script(self, base_dir: Path, label: str, task_name: str,
+                           scope_name: str, res: Dict, run: str) -> None:
+        """Write the script of a task that runs a Rocoto job card.
+
+        The script is rendered from ``dev/ecflow/templates/jobcard.ecf``.
+        """
+        card, envars = self._card_tasks[task_name]
+        template = Path(self.HOMEglobal) / 'dev' / 'ecflow' / 'templates' / 'jobcard.ecf'
+        exports = '\n'.join(f'export {name}=%{name}%' for name in envars)
+        content = (template.read_text()
+                   .replace('__CARD__', card)
+                   .replace('__EXPORTS__', exports))
+
+        dest_dir = base_dir / scope_name if scope_name else base_dir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        sbatch = self._sbatch_header(res, label, run)
+        (dest_dir / f'{label}.ecf').write_text(
+            self._insert_sbatch(content, sbatch))
 
     # ── Suite-level variables ─────────────────────────────────────────
 

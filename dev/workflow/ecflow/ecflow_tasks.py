@@ -23,9 +23,18 @@ with keys consumed by the suite generator::
         'component':    str | None, # 'atmos', 'ocean', 'ice', 'wave'
         'config':       str | None, # config step name (for product tasks)
         'forecast_hours': list | None,  # forecast hours (for product tasks)
+        'card':         str | None, # Rocoto job card run when no .ecf script exists
+        'envars':       dict,       # variables exported to the task
+        'group_task':   bool,       # True → family with one child per entry of 'children'
+        'children':     dict,       # {child name: {variable: value}} (tarball and group tasks)
     }
+
+A trigger may name a task of another run or cycle with ``ref()``.  The
+cycled suite resolves those references and drops every dependency on a
+task that does not run in the cycle.
 """
 
+import re
 from logging import getLogger
 from typing import Dict, List, Optional
 
@@ -33,6 +42,23 @@ from applications.applications import AppConfig
 from rocoto.tasks import Tasks
 
 logger = getLogger(__name__.split('.')[-1])
+
+REF_PATTERN = re.compile(r'\[(\w*)@(-?\d+)\](\S+)')
+
+
+def ref(task: str, run: str = '', offset_hours: int = 0) -> str:
+    """Return a placeholder for a task of another run or cycle.
+
+    Parameters
+    ----------
+    task : str
+        Task name, or ``family/child`` for a child of a group task.
+    run : str, optional
+        Run of the task; the current run when empty.
+    offset_hours : int, optional
+        Cycle offset in hours relative to the current cycle.
+    """
+    return f'[{run}@{offset_hours}]{task}'
 
 
 class EcFlowTasks(Tasks):
@@ -77,7 +103,9 @@ class EcFlowTasks(Tasks):
                      jjob: str,
                      trigger: Optional[str] = None,
                      resource_name: Optional[str] = None,
-                     service: bool = False) -> Dict:
+                     service: bool = False,
+                     card: Optional[str] = None,
+                     envars: Optional[Dict[str, str]] = None) -> Dict:
         """
         Build a standard (non-product) ecFlow task dict.
 
@@ -94,6 +122,13 @@ class EcFlowTasks(Tasks):
             *task_name*.
         service : bool
             Whether this task runs on the service partition.
+        card : str, optional
+            Basename of a Rocoto job card under ``dev/job_cards/rocoto``.
+            Tasks without a script in ``dev/ecflow/scripts`` are run
+            through this card.
+        envars : dict, optional
+            Variables the task needs; the suite emits them as ecFlow
+            variables and the generated script exports them.
         """
         resources = self.get_resource(resource_name or task_name)
         step = resource_name or task_name
@@ -109,7 +144,47 @@ class EcFlowTasks(Tasks):
             'component': None,
             'config': None,
             'forecast_hours': None,
+            'card': card,
+            'envars': envars or {},
         }
+
+    def _group_task(self, task_name: str, *,
+                    jjob: str,
+                    children: Dict[str, Dict[str, str]],
+                    trigger: Optional[str] = None,
+                    resource_name: Optional[str] = None,
+                    card: Optional[str] = None,
+                    script: Optional[str] = None) -> Dict:
+        """
+        Build a group ecFlow task dict (emitted as a family with one child
+        task per group), like a Rocoto metatask over a variable.
+
+        Parameters
+        ----------
+        task_name : str
+            Logical task name (becomes the family name).
+        jjob : str
+            J-Job script basename.
+        children : dict
+            ``{child name: {variable: value}}``; each child sets its own
+            variables.
+        trigger : str, optional
+            ecFlow trigger expression, applied on the family.
+        resource_name : str, optional
+            Config step name for ``get_resource()``.  Defaults to
+            *task_name*.
+        card : str, optional
+            Rocoto job card used when no script exists for the task.
+        script : str, optional
+            Name of the existing ``.ecf`` script the children run.
+            Defaults to *task_name*.
+        """
+        task = self._simple_task(task_name, jjob=jjob, trigger=trigger,
+                                 resource_name=resource_name, card=card)
+        task['group_task'] = True
+        task['children'] = children
+        task['script'] = script or task_name
+        return task
 
     def _product_task(self, task_name: str, *,
                       jjob: str,

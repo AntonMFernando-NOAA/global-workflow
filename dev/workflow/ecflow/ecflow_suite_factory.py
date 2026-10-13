@@ -6,12 +6,13 @@ for different types of workflows (GFS, GEFS, SFS, GCAFS).
 """
 from wxflow import Factory
 from ecflow.forecast_only_ecflow import ForecastOnlyEcFlowSuite
+from ecflow.gfs_cycled_ecflow import GFSCycledEcFlowSuite
 
 # Create a factory for ecFlow suite objects
 ecflow_suite_factory = Factory('ecFlowSuite')
 
 # Register ecFlow suites for different workflow types
-# ecflow_suite_factory.register('gfs_cycled', GFSCycledEcFlowSuite)
+ecflow_suite_factory.register('gfs_cycled', GFSCycledEcFlowSuite)
 ecflow_suite_factory.register('gfs_forecast-only', ForecastOnlyEcFlowSuite)
 ecflow_suite_factory.register('gefs_forecast-only', ForecastOnlyEcFlowSuite)
 # ecflow_suite_factory.register('sfs_forecast-only', ForecastOnlyEcFlowSuite)
