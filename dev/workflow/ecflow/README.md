@@ -7,6 +7,7 @@ with minor path adjustments.
 > **Note:** This guide is Ursa-specific. Paths (e.g. `/scratch3/NCEPDEV/global/${USER}/`),
 > hostnames (e.g. `uecflow01`), and Slurm settings (e.g. `fv3-cpu`, `u1-compute`) below
 > are examples for Ursa; portability to other platforms is not yet supported.
+> Server auto-start and Gaea C6 defaults are covered in [Automatic server start](#automatic-server-start).
 
 ## Prerequisites
 
@@ -201,6 +202,31 @@ ecflow_client --halt=yes       # stop scheduling
 ecflow_client --check_pt       # save server state
 ecflow_client --terminate=yes  # shut down the server process
 ```
+
+### Automatic server start
+
+`run_ecflow_case.py` (and `load_ecflow_case.py`) look for your server
+before creating the experiment. On Gaea C6 and Ursa, unset `ECF_HOST`,
+`ECF_PORT`, and `ECF_HOME` get defaults, so no manual exports are needed:
+
+| Machine | `ECF_HOST` | `ECF_PORT` | `ECF_HOME` |
+|---------|------------|------------|------------|
+| Gaea C6 | current login node | `$(id -u) + 1500` | `/gpfs/f6/drsa-precip3/scratch/${USER}/ecflow` |
+| Ursa | `uecflow01` | `$(id -u) + 1500` | `/scratch3/NCEPDEV/global/${USER}/ecflow` |
+
+If no server answers:
+
+- **Gaea C6:** there is no dedicated ecFlow node, so the server is
+  started on the login node running the script (ecFlow comes from the
+  spack-stack install used by `gw_setup.gaeac6.lua`). Use a specific
+  login node (for example `ssh <username>@gaea66.ncrc.gov`) and
+  restart the server from that same node, since `ECF_HOST` must match.
+  Compute nodes must be able to reach `${ECF_HOST}:${ECF_PORT}` for
+  tasks to report status.
+- **Ursa:** the server must run on `uecflow01`, so the script prints
+  the commands to start it (see above) and exits. Rerun after starting it.
+
+Any variable you export yourself takes precedence over the defaults.
 
 ## Day-to-Day Operations (Quick Reference)
 

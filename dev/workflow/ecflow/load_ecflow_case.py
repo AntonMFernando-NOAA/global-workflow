@@ -15,17 +15,23 @@ default YAML paths and delegate to this module's ``run()`` function.
 
 Prerequisites
 -------------
-1. ecFlow server running (ECF_HOST / ECF_PORT set).
+1. ecFlow server running (ECF_HOST / ECF_PORT set).  On Gaea C6 the
+   server is started automatically if none is running; on Ursa the
+   steps to start it are printed.  ECF_HOST, ECF_PORT, and ECF_HOME
+   default per machine when unset.
 2. global-workflow built and linked.
-3. Environment sourced with ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal::
+3. Environment with ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal (only
+   needed to override the defaults)::
 
        python3 dev/workflow/ecflow/load_ecflow_case.py \\
            --yaml dev/ci/cases/pr/<CASE>.yaml
 """
 
 import argparse
+import getpass
 import os
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +51,25 @@ from hosts import Host  # noqa: E402
 from wxflow import AttrDict, parse_j2yaml  # noqa: E402
 
 REQUIRED_ENV = ("ECF_HOST", "ECF_PORT", "ECF_HOME", "HOMEglobal")
+
+# Per-machine ecFlow server settings.  ``host`` is None when the server
+# runs on the node that launches the case; ``install_dir`` is None when
+# ecFlow comes from a module.
+ECFLOW_SERVERS = {
+    'GAEAC6': {
+        'host': None,
+        'ecf_home': '/gpfs/f6/drsa-precip3/scratch/{user}/ecflow',
+        'install_dir': Path('/ncrc/proj/epic/spack-stack/c6/spack-stack-1.9.2/envs/'
+                            'ue-intel-2023.2.0/install/gcc/12.3.0/ecflow-5.11.4-4w2ufat'),
+        'login_node_prefix': 'gaea',
+    },
+    'URSA': {
+        'host': 'uecflow01',
+        'ecf_home': '/scratch3/NCEPDEV/global/{user}/ecflow',
+        'install_dir': None,
+        'login_node_prefix': None,
+    },
+}
 
 
 def ecflow_client(*args: str) -> subprocess.CompletedProcess:
@@ -155,6 +180,112 @@ def validate_environment() -> None:
         print("    export ECF_HOME=/scratch3/NCEPDEV/global/$USER/ecflow")
         print("    export HOMEglobal=/scratch3/NCEPDEV/global/$USER/global-workflow")
         sys.exit(1)
+
+
+def set_server_defaults(server: dict) -> None:
+    """Fill unset ECF_* variables, HOMEglobal, and PATH for a machine.
+
+    Variables already set in the environment are never overwritten.
+
+    Parameters
+    ----------
+    server : dict
+        Entry of ``ECFLOW_SERVERS`` for the current machine.
+    """
+    user = getpass.getuser()
+    os.environ.setdefault('HOMEglobal', str(HOMEglobal))
+    os.environ.setdefault('ECF_PORT', str(os.getuid() + 1500))
+    os.environ.setdefault('ECF_HOST', server['host'] or socket.gethostname())
+    os.environ.setdefault('ECF_HOME', server['ecf_home'].format(user=user))
+    os.environ.pop('ECF_HOSTFILE', None)
+
+    install_dir = server['install_dir']
+    if install_dir is not None and not shutil.which('ecflow_client'):
+        os.environ['PATH'] = f"{install_dir / 'bin'}:{os.environ['PATH']}"
+        lib_dir = str(install_dir / 'lib')
+        os.environ['LD_LIBRARY_PATH'] = ':'.join(
+            filter(None, [lib_dir, os.environ.get('LD_LIBRARY_PATH')]))
+
+
+def start_local_server() -> bool:
+    """Start the ecFlow server on this node and return True if it responds."""
+    ecf_home = Path(os.environ['ECF_HOME'])
+    ecf_home.mkdir(parents=True, exist_ok=True)
+    cmd = ['ecflow_start.sh', '-p', os.environ['ECF_PORT'], '-d', str(ecf_home)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"[ERROR] Failed to start the ecFlow server: {' '.join(cmd)}")
+        print(f"  {getattr(e, 'stderr', None) or e}")
+        return False
+    return ecflow_client_quiet("--ping")
+
+
+def print_server_instructions(server: dict) -> None:
+    """Print how to start the ecFlow server by hand.
+
+    Parameters
+    ----------
+    server : dict
+        Entry of ``ECFLOW_SERVERS`` for the current machine.
+    """
+    ecf_host = os.environ['ECF_HOST']
+    ecf_home = os.environ['ECF_HOME']
+    print(f"[ERROR] No ecFlow server is reachable at {ecf_host}:{os.environ['ECF_PORT']}.")
+    print()
+    print("  Start your server, then rerun this command:")
+    print()
+    if server['host'] is not None:
+        print(f"    ssh {ecf_host}")
+        print("    module load ecflow")
+    else:
+        print(f"    ssh {ecf_host}   # the node that must run the server")
+        print(f"    export PATH={server['install_dir'] / 'bin'}:$PATH")
+    print(f"    export ECF_PORT={os.environ['ECF_PORT']}")
+    print(f"    mkdir -p {ecf_home}")
+    print(f"    ecflow_start.sh -p $ECF_PORT -d {ecf_home}")
+
+
+def ensure_ecflow_server() -> None:
+    """Make sure an ecFlow server is reachable, starting one if possible.
+
+    On a supported machine, unset ECF_HOST, ECF_PORT, and ECF_HOME get
+    defaults.  If no server answers, one is started when this node is
+    allowed to host it (Gaea C6 login nodes); otherwise the manual steps
+    are printed and the program exits.  On other machines the ECF_*
+    variables must already be set.
+    """
+    server = ECFLOW_SERVERS.get(str(Host().machine).upper())
+    if server is None:
+        validate_environment()
+        return
+
+    set_server_defaults(server)
+    validate_environment()
+
+    if not shutil.which('ecflow_client'):
+        print("[ERROR] ecflow_client not found in PATH.")
+        print("  Run: module load ecflow")
+        sys.exit(1)
+
+    if ecflow_client_quiet("--ping"):
+        return
+
+    this_node = socket.gethostname().split('.')[0]
+    prefix = server['login_node_prefix']
+    can_start = (server['host'] is None
+                 and prefix is not None
+                 and this_node.startswith(prefix)
+                 and os.environ['ECF_HOST'].split('.')[0] == this_node)
+    if not can_start:
+        print_server_instructions(server)
+        sys.exit(1)
+
+    print(f"  No ecFlow server at {os.environ['ECF_HOST']}:{os.environ['ECF_PORT']}, starting one...")
+    if not start_local_server():
+        print_server_instructions(server)
+        sys.exit(1)
+    print("  ecFlow server started.")
 
 
 def load_case_yaml(yaml_path: Path) -> AttrDict:
@@ -337,7 +468,7 @@ def run(default_yaml: Path = None) -> None:
     """
     args = parse_args(default_yaml=default_yaml)
 
-    validate_environment()
+    ensure_ecflow_server()
 
     yaml_path = args.yaml.resolve()
     if not yaml_path.is_file():
