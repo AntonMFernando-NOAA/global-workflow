@@ -18,6 +18,7 @@ fetches each task dict, and renders it into the ``.def`` format.
 """
 
 import os
+import shutil
 from logging import getLogger
 from pathlib import Path
 from typing import Dict, List
@@ -25,10 +26,14 @@ from typing import Dict, List
 from ecflow.ecflow_suite import EcFlowSuite
 from ecflow.ecflow_tasks_factory import ecflow_tasks_factory
 from applications.applications import AppConfig
+from hosts import Host
 from rocoto.tasks import Tasks
 from wxflow import timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
+
+# Slurm account used when ACCOUNT and HPC_ACCOUNT are both unset
+DEFAULT_ACCOUNTS = {'URSA': 'fv3-cpu', 'GAEAC6': 'drsa-precip3'}
 
 
 class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
@@ -290,6 +295,24 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         scaled['walltime'] = Tasks.multiply_HMS(resources['walltime'], group_size)
         return scaled
 
+    @staticmethod
+    def _default_account() -> str:
+        """Return HPC_ACCOUNT, or the machine default when it is unset."""
+        return os.environ.get('HPC_ACCOUNT') or DEFAULT_ACCOUNTS.get(str(Host().machine).upper(), '')
+
+    def _slurm_clusters(self) -> str:
+        """Return the comma-separated Slurm clusters used by this host.
+
+        Returns an empty string when the host does not use multiple clusters.
+        """
+        keys = ('CLUSTERS', 'CLUSTERS_SERVICE', 'CLUSTERS_DTN', 'CLUSTERS_EXCLUSIVE')
+        clusters = []
+        for key in keys:
+            value = str(self._base.get(key, '') or '')
+            if value and value != 'UNDEFINED' and value not in clusters:
+                clusters.append(value)
+        return ','.join(clusters)
+
     def _sbatch_header(self, resources: Dict, task_name: str) -> str:
         """Generate ``#SBATCH`` directive lines for a task.
 
@@ -309,7 +332,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         cyc = self._base['SDATE_GFS'].strftime('%H')
         account = resources.get('account', '')
         if not account or account == 'UNDEFINED':
-            account = os.environ.get('HPC_ACCOUNT', 'fv3-cpu')
+            account = self._default_account()
 
         lines = [
             f"#SBATCH --job-name={run}_{task_name}_{cyc}",
@@ -321,6 +344,8 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
             f"#SBATCH --cpus-per-task={resources['threads']}",
             "#SBATCH --output=%ECF_JOBOUT%",
         ]
+        if resources.get('queue'):
+            lines.append(f"#SBATCH --qos={resources['queue']}")
         if resources.get('native'):
             lines.append(f"#SBATCH {resources['native']}")
         return '\n'.join(lines)
@@ -530,10 +555,20 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
+        # Multi-cluster hosts (Gaea) need the cluster on scancel and squeue
+        clusters = self._slurm_clusters()
+        cluster_opt = f' --clusters={clusters}' if clusters else ''
         lines.append(f"{sp}# Slurm job submission — #SBATCH directives are baked into .ecf files")
         lines.append(f"{sp}edit ECF_JOB_CMD  'sbatch %ECF_JOB%'")
-        lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
-        lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
+        lines.append(f"{sp}edit ECF_KILL_CMD 'scancel{cluster_opt} %ECF_RID%'")
+        lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue{cluster_opt} -j %ECF_RID%'")
+        lines.append(f"{sp}")
+
+        lines.append(f"{sp}# Machine and ecFlow client location used by the .ecf scripts")
+        lines.append(f"{sp}edit MACHINE '{str(Host().machine).upper()}'")
+        ecflow_client = shutil.which('ecflow_client')
+        ecflow_bindir = os.path.dirname(ecflow_client) if ecflow_client else ''
+        lines.append(f"{sp}edit ECFLOW_BINDIR '{ecflow_bindir}'")
         lines.append(f"{sp}")
 
         lines.append(f"{sp}# Experiment variables")
@@ -543,7 +578,7 @@ class GFSForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit APP      '{self._options.get('app', 'ATM')}'")
         account = base.get('ACCOUNT', '')
         if not account or account == 'UNDEFINED':
-            account = os.environ.get('HPC_ACCOUNT', 'fv3-cpu')
+            account = self._default_account()
         lines.append(f"{sp}edit ACCOUNT  '{account}'")
         lines.append(f"{sp}edit QUEUE    '{base.get('PARTITION_BATCH', 'batch')}'")
         lines.append(f"{sp}edit PSLOT    '{self.pslot}'")

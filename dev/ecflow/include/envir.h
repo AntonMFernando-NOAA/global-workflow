@@ -1,4 +1,4 @@
-# Slurm-compatible environment header for Ursa
+# Slurm-compatible environment header (Ursa, Gaea C6)
 # Replaces envir-p1.h (PBS_JOBNAME/PBS_JOBID → Slurm equivalents)
 export job=${job:-${SLURM_JOB_NAME:-$(basename "${ECF_JOB:-.}")}}
 export jobid=${jobid:-${job}.${SLURM_JOB_ID:-$$}}

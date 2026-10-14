@@ -4,8 +4,18 @@ set -xe
 
 export PS4='+ $SECONDS + '
 
-# Load ecflow module first so variable exports below take precedence
-module load ecflow
+# Make ecflow_client available.  Use the module when the host has one and
+# fall back to the client location recorded when the suite was generated.
+load_ecflow() {
+  if type module &> /dev/null; then
+    module load ecflow 2> /dev/null || true
+  fi
+  if [[ -n "%ECFLOW_BINDIR%" && ":${PATH}:" != *":%ECFLOW_BINDIR%:"* ]]; then
+    export PATH="%ECFLOW_BINDIR%:${PATH}"
+  fi
+}
+# Load ecflow first so variable exports below take precedence
+load_ecflow
 
 # ecFlow communication variables
 export ECF_NAME=%ECF_NAME%
@@ -27,7 +37,7 @@ timeout 300 ecflow_client --init=${ECF_RID}
 # Error handler — restores ecflow_client and server coordinates
 ERROR() {
   set +ex
-  module load ecflow 2> /dev/null || true
+  load_ecflow
   export ECF_HOST="${_ECF_HOST_SAVED}"
   export ECF_PORT="${_ECF_PORT_SAVED}"
   if [ "$1" -eq 0 ]; then

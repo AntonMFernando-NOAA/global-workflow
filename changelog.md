@@ -8,3 +8,11 @@
   on a Gaea C6 login node when none is running, and prints the manual
   start steps on Ursa.
 - Document the automatic server start in `dev/workflow/ecflow/README.md`.
+
+- Extend the C48_ATM ecFlow test to Gaea C6:
+  - `.ecf` scripts use `%MACHINE%` instead of a hardcoded `URSA`.
+  - `head.h`/`tail.h` fall back to the ecFlow client location recorded at
+    suite generation when `module load ecflow` is not available.
+  - Suite generator adds `--qos`, multi-cluster `scancel`/`squeue`, and a
+    per-machine default account.
+  - Enable `C48_ATM_ecflow` for `gaeac6` in the case YAML and CI matrix.

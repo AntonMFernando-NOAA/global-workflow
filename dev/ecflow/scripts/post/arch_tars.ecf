@@ -13,7 +13,7 @@ export NET=%NET%
 export PDY=%PDY%
 export cyc=%CYC%
 export TARBALL_TYPE=%TARBALL_TYPE%
-export machine=URSA
+export machine=%MACHINE%
 
 source "${HOMEglobal}/dev/ush/load_modules.sh" run
 status=$?
