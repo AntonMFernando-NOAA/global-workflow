@@ -106,3 +106,23 @@ class TestGFSCycledEcFlowSuite:
 
         assert resolved == ('/exp/2021122018/gdas/fcst == complete and '
                             '/exp/2021122018/enkfgdas/efcs/mem001 == complete')
+
+    def test_waveinit_family_only_init_in_first_cycle(self):
+        suite = _make_suite()
+
+        assert suite._family_of('waveinit', '2021122012') == 'init'
+        assert suite._family_of('waveinit', '2021122018') == 'analysis'
+        assert suite._family_of('waveinit', '2021122100') == 'analysis'
+
+    def test_metp_family_is_stats(self):
+        suite = _make_suite()
+
+        assert suite._family_of('metp', '2021122018') == 'stats'
+
+    def test_resolve_trigger_waveinit_path_follows_cycle(self):
+        suite = _make_suite()
+
+        trigger = f"{ref('waveinit', 'gdas', -6)} == complete"
+
+        assert suite._resolve_trigger(trigger, SECOND) == '/exp/2021122012/gdas/init/waveinit == complete'
+        assert suite._resolve_trigger(trigger, THIRD) == '/exp/2021122018/gdas/analysis/waveinit == complete'

@@ -80,6 +80,21 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
         # Ensemble members belong to the enkf runs, not to the suite.
         self._nmem = 0
 
+    def _family_of(self, task_name: str, cycle_str: str = None) -> str:
+        """Return the run-level family of a task in a cycle.
+
+        ``init`` exists only in the first cycle.  Later cycles run
+        ``waveinit`` as part of the analysis chain, and ``metp`` is a
+        verification (``stats``) task.
+        """
+        if task_name == 'metp':
+            return 'stats'
+        if task_name == 'waveinit':
+            cycle_str = cycle_str or self._cycle_str
+            first = cycle_str == self._sdate.strftime('%Y%m%d%H')
+            return 'init' if first else 'analysis'
+        return _TASK_FAMILY.get(task_name)
+
     # ── Public interface ──────────────────────────────────────────────
 
     def get_cycledefs(self) -> str:
@@ -229,7 +244,8 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
                 continue
             if match or '/' in target:
                 path = [f'/{self.pslot}/{target_cycle.strftime("%Y%m%d%H")}',
-                        run, _TASK_FAMILY.get(task), target]
+                        run, self._family_of(task, target_cycle.strftime('%Y%m%d%H')),
+                        target]
                 token = '/'.join(name for name in path if name)
             parts.append(f'{token} {state}')
         return ' and '.join(parts)

@@ -140,6 +140,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         # Subdirectory of ecf_scripts holding the scripts of the selected
         # run; empty when the suite has a single run.
         self._ecf_prefix = ''
+        # Cycle being emitted (YYYYMMDDHH); empty for single-cycle suites
+        self._cycle_str = ''
         # {prefix: (run, copy_map)}
         self._copy_maps: Dict[str, tuple] = {}
         # {task name: (job card, variable names)} of the tasks whose script
@@ -239,6 +241,13 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         return [self._tasks.get_ecflow_task(task_name)
                 for task_name in self._task_names]
 
+    def _family_of(self, task_name: str, cycle_str: str = None) -> str:
+        """Return the run-level family of a task, or None if ungrouped.
+
+        *cycle_str* defaults to the cycle being emitted.
+        """
+        return _TASK_FAMILY.get(task_name)
+
     def _emit_run_family(self, cycle_str: str, indent: int) -> List[str]:
         """Emit ``family {run}`` for the selected run and cycle.
 
@@ -253,6 +262,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         # {(label, source_name, scope_dir_or_None): resources}
         self._copy_map = self._copy_maps.setdefault(
             self._ecf_prefix, (self._run, {}))[1]
+        self._cycle_str = cycle_str
 
         all_tasks = self._get_task_dicts(cycle_str)
 
@@ -279,7 +289,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         entries: List[tuple] = []
 
         for td in pre_ensemble:
-            entries.append((_TASK_FAMILY.get(td['task_name']),
+            entries.append((self._family_of(td['task_name']),
                             lambda i, td=td: self._emit_task(td, i)))
 
         # Ensemble tasks (only when nmem > 0)
@@ -288,7 +298,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 entries.append((None, lambda i, td=td:
                                 self._emit_fcst_ens_family(td, i)))
             else:
-                entries.append((_TASK_FAMILY.get(td['task_name']),
+                entries.append((self._family_of(td['task_name']),
                                 lambda i, td=td:
                                 self._emit_per_member_task(td, i)))
 
@@ -303,7 +313,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                 else:
                     td['trigger'] = self._rewrite_post_ensemble_trigger(
                         trigger, ens_task_names)
-            entries.append((_TASK_FAMILY.get(td['task_name']),
+            entries.append((self._family_of(td['task_name']),
                             lambda i, td=td: self._emit_task(td, i)))
 
         lines += self._emit_grouped(entries, indent)
@@ -314,8 +324,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
     def _emit_grouped(self, entries: List[tuple], indent: int) -> List[str]:
         """Emit tasks, wrapping those with a family in that family.
 
-        Order is: ``init``, ungrouped tasks, then the remaining families
-        in ``_FAMILY_ORDER``.
+        Order is: ``init``, ``analysis``, ungrouped tasks (the forecast),
+        then the remaining families in ``_FAMILY_ORDER``.
         """
         sp = ' ' * indent
         lines: List[str] = []
@@ -332,11 +342,12 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             lines.append('')
 
         emit_family('init')
+        emit_family('analysis')
         for fam, fn in entries:
             if fam is None:
                 lines.extend(fn(indent))
                 lines.append('')
-        for name in _FAMILY_ORDER[1:]:
+        for name in _FAMILY_ORDER[2:]:
             emit_family(name)
 
         return lines
@@ -353,7 +364,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         for part in trigger.split(' and '):
             part = part.strip()
             name = part.split(' ')[0]
-            family = _TASK_FAMILY.get(name)
+            family = self._family_of(name)
             if family:
                 part = part.replace(
                     name, f'{self._run_path}/{family}/{name}', 1)
