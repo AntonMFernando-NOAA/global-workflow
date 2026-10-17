@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-16
+
+- Fix the ecFlow `arch_tars` tarball list in
+  `dev/workflow/ecflow/ecflow_tasks.py` to match Rocoto: drop the
+  nonexistent `gfsb` and `gfs_flux_1p00` types that caused
+  `TemplateNotFound: gfsb.yaml.j2` in `JGLOBAL_ARCHIVE_TARS`.
+
 ## 2026-10-14
 
 - Add `ensure_ecflow_server()` to `dev/workflow/ecflow/load_ecflow_case.py`,
