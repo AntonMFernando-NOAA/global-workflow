@@ -18,6 +18,17 @@ class EcFlowSuite(WorkflowSuite, ABC):
 
         super().__init__(app_config, ecflow_config)
 
+    def _log_dir(self, cycle_str: str) -> str:
+        """Return the directory holding the job logs of one cycle."""
+        default_rotdir = os.path.join(str(self._base.get('COMROOT', '/tmp')),
+                                      self.pslot)
+        return os.path.join(self._base.get('ROTDIR', default_rotdir),
+                            'logs', cycle_str)
+
+    def _ecf_home_dir(self) -> str:
+        """Return ECF_HOME, where ecFlow writes its .job files (not in the logs)."""
+        return os.path.join(self.expdir, 'ecfjobs')
+
     @staticmethod
     def index_ecf_sources(src_dir: Path) -> Dict[str, str]:
         """Map each source ``.ecf`` name to its path under ``src_dir``.
@@ -81,7 +92,7 @@ class EcFlowSuite(WorkflowSuite, ABC):
             f"#SBATCH --nodes={resources['nodes']}",
             f"#SBATCH --ntasks-per-node={resources['ppn']}",
             f"#SBATCH --cpus-per-task={resources['threads']}",
-            "#SBATCH --output=%ECF_JOBOUT%",
+            "#SBATCH --output=%LOGDIR%/%LOG_NAME%.log.%ECF_TRYNO%",
         ]
         if resources.get('memory'):
             memory_mb = self._memory_to_mb(resources['memory'])

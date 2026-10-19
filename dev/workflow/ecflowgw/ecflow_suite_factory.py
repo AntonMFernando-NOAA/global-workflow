@@ -5,8 +5,8 @@ This module provides a factory that creates appropriate ecFlow suites
 for different types of workflows (GFS, GEFS, SFS, GCAFS).
 """
 from wxflow import Factory
-from ecflow.forecast_only_ecflow import ForecastOnlyEcFlowSuite
-from ecflow.gfs_cycled_ecflow import GFSCycledEcFlowSuite
+from ecflowgw.forecast_only_ecflow import ForecastOnlyEcFlowSuite
+from ecflowgw.gfs_cycled_ecflow import GFSCycledEcFlowSuite
 
 # Create a factory for ecFlow suite objects
 ecflow_suite_factory = Factory('ecFlowSuite')

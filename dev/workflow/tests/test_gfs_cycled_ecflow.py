@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-from ecflow.ecflow_tasks import ref
-from ecflow.gfs_cycled_ecflow import GFSCycledEcFlowSuite
+from ecflowgw.ecflow_tasks import ref
+from ecflowgw.gfs_cycled_ecflow import GFSCycledEcFlowSuite
 
 FIRST = datetime(2021, 12, 20, 12)
 SECOND = datetime(2021, 12, 20, 18)

@@ -39,9 +39,9 @@ from logging import getLogger
 from typing import Dict, List, Tuple
 
 from applications.applications import AppConfig
-from ecflow.ecflow_tasks import REF_PATTERN
-from ecflow.forecast_only_ecflow import _TASK_FAMILY, ForecastOnlyEcFlowSuite
-from ecflow.gfs_cycled_ecflow_tasks import GFSCycledEcFlowTasks
+from ecflowgw.ecflow_tasks import REF_PATTERN
+from ecflowgw.forecast_only_ecflow import _TASK_FAMILY, ForecastOnlyEcFlowSuite
+from ecflowgw.gfs_cycled_ecflow_tasks import GFSCycledEcFlowTasks
 from wxflow import to_timedelta, timedelta_to_HMS
 
 logger = getLogger(__name__.split('.')[-1])
@@ -120,6 +120,7 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
             body.append(f'  family {cycle_str}')
             body.append(f"    edit PDY '{cycle.strftime('%Y%m%d')}'")
             body.append(f"    edit CYC '{cycle.strftime('%H')}'")
+            body.append(self._log_dir_edit(cycle_str, indent=4))
             body.append('')
             for run in runs:
                 self._select_run(run)

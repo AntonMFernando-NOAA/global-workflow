@@ -22,8 +22,8 @@ from typing import Dict, List
 import numpy as np
 
 from applications.applications import AppConfig
-from ecflow.ecflow_tasks import ref
-from ecflow.gfs_ecflow_tasks import GFSEcFlowTasks
+from ecflowgw.ecflow_tasks import ref
+from ecflowgw.gfs_ecflow_tasks import GFSEcFlowTasks
 
 logger = getLogger(__name__.split('.')[-1])
 

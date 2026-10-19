@@ -36,8 +36,8 @@ echo ""
 
 sync_ecf_scripts() {
   echo "[sync] Copying .ecf scripts to ${ECF_SCRIPTS}..."
-  if [[ -x "${HOMEglobal}/dev/workflow/ecflow/sync_ecf_scripts.sh" ]]; then
-    bash "${HOMEglobal}/dev/workflow/ecflow/sync_ecf_scripts.sh" \
+  if [[ -x "${HOMEglobal}/dev/workflow/ecflowgw/sync_ecf_scripts.sh" ]]; then
+    bash "${HOMEglobal}/dev/workflow/ecflowgw/sync_ecf_scripts.sh" \
       "${ECF_SCRIPTS}"
   elif [[ -f "${ECF_SCRIPTS}/ecf_scripts.manifest" ]]; then
     local src_dir count=0
@@ -71,7 +71,7 @@ case "${MODE}" in
     cd "${HOMEglobal}/dev/workflow"
     python3 -c "
 import sys; sys.path.insert(0, '.')
-from ecflow.load_ecflow_case import generate_ecflow_def
+from ecflowgw.load_ecflow_case import generate_ecflow_def
 from pathlib import Path
 generate_ecflow_def(Path('${EXPDIR}'))
 "

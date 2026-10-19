@@ -7,15 +7,15 @@ repeated here.
 ## Step 1: Load the case
 
 ```
-$ python3 dev/workflow/ecflow/run_ecflow_case.py \
+$ python3 dev/workflow/ecflowgw/run_ecflow_case.py \
       --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml --pslot my_gefs_test
 
 run_ecflow_case.py                         entry point
-  |  (dev/workflow/ecflow/run_ecflow_case.py)
+  |  (dev/workflow/ecflowgw/run_ecflow_case.py)
   |
-  +-- load_ecflow_case.run()               (dev/workflow/ecflow/load_ecflow_case.py)
+  +-- load_ecflow_case.run()               (dev/workflow/ecflowgw/load_ecflow_case.py)
         |
-        +-- validate_environment()         ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal
+        +-- EcflowServer()                 finds host/port (see PROCESS_FLOW.md)
         |
         +-- load_case_yaml()               parse C48_S2SWA_gefs.yaml
         |     net=gefs  mode=forecast-only  app=S2SWA  nens=2
@@ -140,7 +140,7 @@ ecflow_client --begin=my_gefs_test
 ecflow_client --requeue=aborted /my_gefs_test      # requeue aborted tasks
 
 # Fresh start after changing scripts or configs
-python3 dev/workflow/ecflow/run_ecflow_case.py \
+python3 dev/workflow/ecflowgw/run_ecflow_case.py \
     --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml --pslot my_gefs_test --overwrite
 ecflow_client --begin=my_gefs_test
 ```

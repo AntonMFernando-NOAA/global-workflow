@@ -26,11 +26,11 @@ For a step-by-step walk through of what each command does, see
 ## Run the case
 
 ```bash
-# Environment: see README.md (ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal,
-# MACHINE_ID, HPC_ACCOUNT) and load the setup modules
+# Environment: see README.md (the loader finds the ecFlow server itself)
+# and load the setup modules
 source ${HOMEglobal}/dev/ush/load_modules.sh setup
 
-python3 dev/workflow/ecflow/run_ecflow_case.py \
+python3 dev/workflow/ecflowgw/run_ecflow_case.py \
     --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml \
     --pslot my_gefs_test
 
@@ -180,7 +180,8 @@ ecflow_client --get_state /my_gefs_test/gefs/2021032312/fcst_member/mem001
 ecflow_client --requeue=aborted /my_gefs_test
 
 # Job output
-ls ${ECF_HOME}   # {COMROOT}/{pslot}/logs/
+ls ${COMROOT}/my_gefs_test/logs/2021032312/   # <run>_<task>.log.<try>
+ls ${EXPDIR}/ecfjobs/                          # ecFlow .job files
 ```
 
 | Symptom | Likely cause |

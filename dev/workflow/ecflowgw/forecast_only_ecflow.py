@@ -58,8 +58,8 @@ from logging import getLogger
 from pathlib import Path
 from typing import Dict, List, Set
 
-from ecflow.ecflow_suite import EcFlowSuite
-from ecflow.ecflow_tasks_factory import ecflow_tasks_factory
+from ecflowgw.ecflow_suite import EcFlowSuite
+from ecflowgw.ecflow_tasks_factory import ecflow_tasks_factory
 from applications.applications import AppConfig
 from rocoto.tasks import Tasks
 from wxflow import timedelta_to_HMS
@@ -147,6 +147,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         # {task name: (job card, variable names)} of the tasks whose script
         # is generated from the job card template
         self._card_tasks: Dict[str, tuple] = {}
+        # Job log directories (one per cycle) to create on write
+        self._log_dirs: Set[str] = set()
 
         self._select_run(list(app_config.task_names.keys())[0])
 
@@ -204,6 +206,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * 2}family {cycle_str}')
         lines.append(f'{" " * 4}edit PDY \'{sdate.strftime("%Y%m%d")}\'')
         lines.append(f'{" " * 4}edit CYC \'{sdate.strftime("%H")}\'')
+        lines.append(self._log_dir_edit(cycle_str, indent=4))
         lines.append('')
 
         # ── RUN family (gefs, gfs, gdas, ...) ─────────────────────────
@@ -225,6 +228,17 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         self._ecf_index = self.index_ecf_sources(self._ecf_src_dir)
         self._copy_maps = {}
         self._card_tasks = {}
+        self._log_dirs = set()
+
+    def _log_dir_edit(self, cycle_str: str, indent: int) -> str:
+        """Return the ``edit LOGDIR`` line of a cycle family.
+
+        The directory is created when the suite is written, because Slurm
+        does not create the directory of ``--output``.
+        """
+        log_dir = self._log_dir(cycle_str)
+        self._log_dirs.add(log_dir)
+        return f"{' ' * indent}edit LOGDIR '{log_dir}'"
 
     def _finish_write(self, def_file: str, lines: List[str]) -> str:
         """Write the ``.def`` file and populate the ecf_scripts directory."""
@@ -233,6 +247,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             fh.write('\n'.join(lines))
 
         logger.info(f'ecFlow suite definition written to {def_file}')
+        for log_dir in self._log_dirs:
+            os.makedirs(log_dir, exist_ok=True)
         self._create_ecf_scripts()
         return def_file
 
@@ -319,7 +335,35 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._emit_grouped(entries, indent)
 
         lines.append(f'{" " * (indent - 2)}endfamily')
-        return lines
+        return self._add_log_names(lines)
+
+    @staticmethod
+    def _add_log_names(lines: List[str]) -> List[str]:
+        """Add ``edit LOG_NAME`` to every task of a run family.
+
+        The name is the run, the enclosing families and the task joined by
+        underscores, for example ``gefs_atmos_prod_mem001_f000_f006``.  The
+        grouping families (init, analysis, ...) are left out so the names
+        match the Rocoto logs.
+        """
+        grouping = set(_TASK_FAMILY.values())
+        named: List[str] = []
+        families: List[str] = []
+        for line in lines:
+            named.append(line)
+            words = line.split()
+            if not words:
+                continue
+            if words[0] == 'family':
+                families.append(words[1])
+            elif words[0] == 'endfamily':
+                families.pop()
+            elif words[0] == 'task':
+                parts = [fam for fam in families if fam not in grouping]
+                log_name = '_'.join(parts + [words[1]])
+                indent = ' ' * (len(line) - len(line.lstrip()) + 2)
+                named.append(f"{indent}edit LOG_NAME '{log_name}'")
+        return named
 
     def _emit_grouped(self, entries: List[tuple], indent: int) -> List[str]:
         """Emit tasks, wrapping those with a family in that family.
@@ -994,10 +1038,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         base = self._base
         lines = []
 
-        rotdir = base.get('ROTDIR', os.path.join(
-            str(base.get('COMROOT', '/tmp')), self.pslot))
-        ecf_log_dir = os.path.join(rotdir, 'logs')
-
         ecf_host = os.environ.get(
             'ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
         ecf_port = os.environ.get('ECF_PORT', '3141')
@@ -1012,11 +1052,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_PORT    '{ecf_port}'")
         lines.append(f"{sp}")
         lines.append(f"{sp}# File locations")
-        lines.append(f"{sp}edit ECF_HOME    '{ecf_log_dir}'")
+        lines.append(f"{sp}edit ECF_HOME    '{self._ecf_home_dir()}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
-        lines.append(
-            f"{sp}edit ECF_JOBOUT  '{ecf_log_dir}/%TASK%.%ECF_TRYNO%'")
         lines.append(f"{sp}")
 
         lines.append(f"{sp}# Slurm job submission commands")
