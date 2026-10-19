@@ -316,7 +316,7 @@ ecflow_client --get_state /C48_ATM_ecflow   # CLI
 
 ```bash
 python3 dev/workflow/ecflowgw/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/C96C48mx500_S2SW_cyc_gfs.yaml
+    --yaml dev/ci/cases/ecflowpr/C96C48mx500_S2SW_cyc_gfs_ecflow.yaml
 ```
 
 The suite has a family per cycle with a family per run: `gdas`, `enkfgdas`,

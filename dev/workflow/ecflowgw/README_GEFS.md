@@ -1,7 +1,7 @@
 # Running the C48 GEFS Test Case with ecFlow
 
 This guide covers the forecast-only GEFS test case
-(`dev/ci/cases/pr/C48_S2SWA_gefs.yaml`, 2 perturbed members plus the
+(`dev/ci/cases/ecflowpr/C48_S2SWA_gefs_ecflow.yaml`, 2 perturbed members plus the
 control) using ecFlow. Server setup, Ursa login and environment
 variables are identical to the C48_ATM case and are described in
 [README.md](README.md) (sections "Connecting to Ursa" through "ecFlow
@@ -14,7 +14,7 @@ For a step-by-step walk through of what each command does, see
 
 | Item | C48_ATM (GFS) | C48_S2SWA_gefs (GEFS) |
 |------|---------------|-----------------------|
-| Case YAML | `C48_ATM.yaml` (default) | `C48_S2SWA_gefs.yaml` (`--yaml` required) |
+| Case YAML | `C48_ATM_ecflow.yaml` | `C48_S2SWA_gefs_ecflow.yaml` (`--yaml` required) |
 | Suite generator | `forecast_only_ecflow.py` | `forecast_only_ecflow.py` (same class) |
 | Task definitions | `gfs_ecflow_tasks.py` | `gefs_ecflow_tasks.py` |
 | Ensemble members | none (`NMEM_ENS=0`) | `NMEM_ENS` > 0 gives `mem000` .. `memNNN` families |
@@ -31,7 +31,7 @@ For a step-by-step walk through of what each command does, see
 source ${HOMEglobal}/dev/ush/load_modules.sh setup
 
 python3 dev/workflow/ecflowgw/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml \
+    --yaml dev/ci/cases/ecflowpr/C48_S2SWA_gefs_ecflow.yaml \
     --pslot my_gefs_test
 
 # Start the suite

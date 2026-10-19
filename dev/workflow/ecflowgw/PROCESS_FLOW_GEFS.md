@@ -8,7 +8,7 @@ repeated here.
 
 ```
 $ python3 dev/workflow/ecflowgw/run_ecflow_case.py \
-      --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml --pslot my_gefs_test
+      --yaml dev/ci/cases/ecflowpr/C48_S2SWA_gefs_ecflow.yaml --pslot my_gefs_test
 
 run_ecflow_case.py                         entry point
   |  (dev/workflow/ecflowgw/run_ecflow_case.py)
@@ -17,7 +17,7 @@ run_ecflow_case.py                         entry point
         |
         +-- EcflowServer()                 finds host/port (see PROCESS_FLOW.md)
         |
-        +-- load_case_yaml()               parse C48_S2SWA_gefs.yaml
+        +-- load_case_yaml()               parse C48_S2SWA_gefs_ecflow.yaml
         |     net=gefs  mode=forecast-only  app=S2SWA  nens=2
         |
         +-- [0/4] cleanup_stale_files()    old logs / COMROOT / RUNDIRS for the pslot
@@ -141,6 +141,6 @@ ecflow_client --requeue=aborted /my_gefs_test      # requeue aborted tasks
 
 # Fresh start after changing scripts or configs
 python3 dev/workflow/ecflowgw/run_ecflow_case.py \
-    --yaml dev/ci/cases/pr/C48_S2SWA_gefs.yaml --pslot my_gefs_test --overwrite
+    --yaml dev/ci/cases/ecflowpr/C48_S2SWA_gefs_ecflow.yaml --pslot my_gefs_test --overwrite
 ecflow_client --begin=my_gefs_test
 ```
