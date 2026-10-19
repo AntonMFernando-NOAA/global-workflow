@@ -319,11 +319,24 @@ python3 dev/workflow/ecflowgw/run_ecflow_case.py \
     --yaml dev/ci/cases/ecflowpr/C96C48mx500_S2SW_cyc_gfs_ecflow.yaml
 ```
 
-The suite has a family per cycle with a family per run: `gdas`, `enkfgdas`,
-`gfs` and `enkfgfs`. The first cycle only runs `stage_ic`, `waveinit`,
-`fcst`, `atmos_prod` and `cleanup` for `gdas`, and the initial forecast
-and ensemble post tasks for `enkfgdas`, like the `gdas_half` cycle of the
-Rocoto workflow.
+The suite has one family per cycle hour (`00`, `06`, `12`, `18`) that every
+cycle of that hour reuses, and a family per run inside it: `gdas`,
+`enkfgdas`, `gfs` and `enkfgfs`. The first cycle has a family of its own,
+`half`. It only runs `stage_ic`, `waveinit`, `fcst`, `atmos_prod` and
+`cleanup` for `gdas`, and the initial forecast and ensemble post tasks for
+`enkfgdas`, like the `gdas_half` cycle of the Rocoto workflow.
+
+Each cycle family starts with the task `cycle_begin`
+(`dev/ecflow/scripts/cycle_begin.ecf`). It waits for the previous cycle to
+start its `gdas` forecast, and for the `gfs` forecast of two cycles ago to
+stop running. It sets `PDY` and `LOGDIR` of the next cycle family and
+requeues that family. The run families wait for the `cycle_begin` of their
+cycle. This is the method of `dev/ecf/gfs/defs/gfs_prod.def`, which keeps a
+family per cycle hour instead of one per cycle.
+
+A dependency that points to different tasks in the cycles that share a
+family, for example the first full cycle that follows `half`, is written
+with conditions on the `PDY` of the family.
 
 The task definitions are in `gfs_cycled_ecflow_tasks.py`. A trigger lists
 every task the task may wait for. The suite drops the entries for tasks

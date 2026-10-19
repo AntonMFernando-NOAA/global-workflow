@@ -264,6 +264,14 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         """
         return _TASK_FAMILY.get(task_name)
 
+    def _cycle_node(self, cycle_str: str) -> str:
+        """Return the name of the cycle family that holds the run family."""
+        return cycle_str
+
+    def _run_family_attributes(self, indent: int) -> List[str]:
+        """Return extra attributes (such as a trigger) of the run family."""
+        return []
+
     def _emit_run_family(self, cycle_str: str, indent: int) -> List[str]:
         """Emit ``family {run}`` for the selected run and cycle.
 
@@ -284,7 +292,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
         # Triggers on grouped tasks need the full path since they live in
         # a family, not next to the dependent task.
-        self._run_path = f'/{self.pslot}/{cycle_str}/{self._run}'
+        self._run_path = f'/{self.pslot}/{self._cycle_node(cycle_str)}/{self._run}'
         for td in all_tasks:
             if td.get('trigger'):
                 td['trigger'] = self._qualify_trigger(td['trigger'])
@@ -299,6 +307,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}family {self._run}')
         indent += 2
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
+        lines += self._run_family_attributes(indent)
         lines.append('')
 
         # Each entry is (family or None, emitter(indent) -> lines)
@@ -1038,19 +1047,11 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         base = self._base
         lines = []
 
-        ecf_host = os.environ.get(
-            'ECF_HOST', os.environ.get('HOSTNAME', 'localhost'))
-        ecf_port = os.environ.get('ECF_PORT', '3141')
-
         ecf_scripts_dir = os.path.join(self.expdir, 'ecf_scripts')
         ecf_include = os.environ.get(
             'ECF_INCLUDE',
             os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'include'))
 
-        lines.append(f"{sp}# ecFlow server connection")
-        lines.append(f"{sp}edit ECF_LOGHOST '{ecf_host}'")
-        lines.append(f"{sp}edit ECF_PORT    '{ecf_port}'")
-        lines.append(f"{sp}")
         lines.append(f"{sp}# File locations")
         lines.append(f"{sp}edit ECF_HOME    '{self._ecf_home_dir()}'")
         lines.append(f"{sp}edit ECF_INCLUDE '{ecf_include}'")

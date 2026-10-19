@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from ecflowgw.ecflow_tasks import ref
 from ecflowgw.gfs_cycled_ecflow import GFSCycledEcFlowSuite
 
@@ -23,6 +25,7 @@ def _make_suite(interval_gfs_hours=6):
     suite._assim_freq = timedelta(hours=6)
     suite._runs = [run for run in ('gdas', 'enkfgdas', 'gfs', 'enkfgfs') if run in task_names]
     suite._cycles = suite._get_cycles()
+    suite._families = suite._group_cycles()
     suite._planned = {}
     suite._skipped = {}
     suite._run = 'gdas'
@@ -80,32 +83,32 @@ class TestGFSCycledEcFlowSuite:
 
         trigger = 'stage_ic == complete and waveinit == complete and prep == complete'
 
-        assert suite._resolve_trigger(trigger, FIRST) == 'stage_ic == complete and waveinit == complete'
-        assert suite._resolve_trigger(trigger, SECOND) == 'waveinit == complete and prep == complete'
+        assert suite._resolve_trigger(trigger, [FIRST]) == 'stage_ic == complete and waveinit == complete'
+        assert suite._resolve_trigger(trigger, [SECOND]) == 'waveinit == complete and prep == complete'
 
     def test_resolve_trigger_previous_cycle(self):
         suite = _make_suite()
 
         trigger = f"prep == complete and {ref('atmos_prod', 'gdas', -6)} == complete"
-        resolved = suite._resolve_trigger(trigger, SECOND)
+        resolved = suite._resolve_trigger(trigger, [SECOND])
 
-        assert resolved == 'prep == complete and /exp/2021122012/gdas/products/atmos_prod == complete'
+        assert resolved == 'prep == complete and /exp/half/gdas/products/atmos_prod == complete'
 
     def test_resolve_trigger_missing_cycle(self):
         suite = _make_suite()
 
         trigger = f"{ref('atmos_prod', 'gdas', -6)} == complete"
 
-        assert suite._resolve_trigger(trigger, FIRST) == ''
+        assert suite._resolve_trigger(trigger, [FIRST]) == ''
 
     def test_resolve_trigger_other_run_and_child(self):
         suite = _make_suite()
 
         trigger = f"{ref('fcst', 'gdas')} == complete and {ref('efcs/mem001', 'enkfgdas')} == complete"
-        resolved = suite._resolve_trigger(trigger, SECOND)
+        resolved = suite._resolve_trigger(trigger, [SECOND])
 
-        assert resolved == ('/exp/2021122018/gdas/fcst == complete and '
-                            '/exp/2021122018/enkfgdas/efcs/mem001 == complete')
+        assert resolved == ('/exp/18/gdas/fcst == complete and '
+                            '/exp/18/enkfgdas/efcs/mem001 == complete')
 
     def test_waveinit_family_only_init_in_first_cycle(self):
         suite = _make_suite()
@@ -124,5 +127,62 @@ class TestGFSCycledEcFlowSuite:
 
         trigger = f"{ref('waveinit', 'gdas', -6)} == complete"
 
-        assert suite._resolve_trigger(trigger, SECOND) == '/exp/2021122012/gdas/init/waveinit == complete'
-        assert suite._resolve_trigger(trigger, THIRD) == '/exp/2021122018/gdas/analysis/waveinit == complete'
+        assert suite._resolve_trigger(trigger, [SECOND]) == '/exp/half/gdas/init/waveinit == complete'
+        assert suite._resolve_trigger(trigger, [THIRD]) == '/exp/18/gdas/analysis/waveinit == complete'
+
+    def test_family_names(self):
+        suite = _make_suite()
+
+        assert [suite._family_name(cycle) for cycle in suite._cycles] == ['half', '18', '00']
+
+    def test_cycles_of_one_hour_share_a_family(self):
+        suite = _make_suite()
+        suite._base['EDATE'] = datetime(2021, 12, 22, 0)
+        suite._cycles = suite._get_cycles()
+        suite._families = suite._group_cycles()
+
+        assert list(suite._families) == ['half', '18', '00', '06', '12']
+        assert suite._families['18'] == [SECOND, datetime(2021, 12, 21, 18)]
+        assert suite._families['00'] == [THIRD, datetime(2021, 12, 22, 0)]
+
+    def test_cycles_of_one_hour_with_different_runs(self):
+        suite = _make_suite(interval_gfs_hours=24)
+        suite._base['SDATE_GFS'] = datetime(2021, 12, 21, 18)
+        suite._base['EDATE'] = datetime(2021, 12, 22, 18)
+        suite._cycles = suite._get_cycles()
+
+        with pytest.raises(ValueError):
+            suite._group_cycles()
+
+    def test_begin_condition(self):
+        suite = _make_suite()
+
+        assert suite._begin_condition(FIRST) is None
+        assert suite._begin_condition(SECOND) == ('(/exp/half/gdas/fcst == active or '
+                                                  '/exp/half/gdas/fcst == complete)')
+        assert suite._begin_condition(THIRD) == '(/exp/18/gdas/fcst == active or /exp/18/gdas/fcst == complete)'
+
+    def test_begin_condition_waits_for_gfs_of_two_cycles_ago(self):
+        suite = _make_suite()
+        suite._base['EDATE'] = datetime(2021, 12, 21, 6)
+        suite._cycles = suite._get_cycles()
+        suite._families = suite._group_cycles()
+
+        assert suite._begin_condition(datetime(2021, 12, 21, 6)).endswith('and /exp/18/gfs/fcst != active')
+
+    def test_combine_by_cycle_same_expression(self):
+        suite = _make_suite()
+
+        assert suite._combine_by_cycle('18', {SECOND: 'a == complete', THIRD: 'a == complete'}) == 'a == complete'
+        assert suite._combine_by_cycle('18', {SECOND: None, THIRD: None}) == ''
+
+    def test_combine_by_cycle_guards_with_pdy(self):
+        suite = _make_suite()
+
+        combined = suite._combine_by_cycle('18', {SECOND: '/exp/half/x == complete',
+                                                  THIRD: '/exp/12/x == complete',
+                                                  datetime(2021, 12, 22, 0): None})
+
+        assert combined == ('((/exp/half/x == complete and /exp/18:PDY == 20211220) or '
+                            '(/exp/12/x == complete and /exp/18:PDY == 20211221) or '
+                            '/exp/18:PDY == 20211222)')
