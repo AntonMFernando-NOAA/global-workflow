@@ -13,13 +13,15 @@ set -x
 suite=%SUITE%
 pdy=%PDY%
 cyc=%CYC%
+# Name of the family that runs the next cycle hour (empty on the last family)
+next_family_name="%NEXT_FAMILY:%"
 
 # The doubled percent signs keep ecFlow from reading the date format as variables
 next_cycle=$(date --utc --date="${pdy} ${cyc}:00 UTC + %ASSIM_FREQ% hours" +%%Y%%m%%d%%H)
 
 # The last cycle has no next cycle to prepare
-if [[ "${next_cycle}" -le "%EDATE%" ]]; then
-  next_family="/${suite}/${next_cycle:8:2}"
+if [[ -n "${next_family_name}" && "${next_cycle}" -le "%EDATE%" ]]; then
+  next_family="/${suite}/${next_family_name}"
   ecflow_client --alter add variable PDY "${next_cycle:0:8}" "${next_family}"
   ecflow_client --alter add variable LOGDIR "%LOGROOT%/${next_cycle}" "${next_family}"
 

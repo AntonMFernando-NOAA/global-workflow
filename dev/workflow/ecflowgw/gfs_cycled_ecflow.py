@@ -4,18 +4,18 @@
 Cycled GFS ecFlow suite generator.
 
 Builds one ecFlow suite for a cycled experiment.  The suite holds one
-family per cycle hour (``00``, ``06``, ``12``, ``18``) that every cycle of
-that hour reuses, and, inside it, a family per run (``gdas``,
-``enkfgdas``, ``gfs``, ``enkfgfs``)::
+family per cycle hour that every cycle of that hour reuses, and, inside
+it, a family per run (``gdas``, ``enkfgdas``, ``gfs``, ``enkfgfs``).  Each
+family is named after the ``PDYCYC`` (``YYYYMMDDHH``) of its first cycle::
 
     suite {pslot}
-      family half                            # first cycle only
+      family 2021122012                      # first cycle, reduced tasks
         task cycle_begin
         family gdas
           ...
         endfamily
       endfamily
-      family {HH}                            # one per cycle hour
+      family 2021122018                      # reused by every 18Z cycle
         task cycle_begin
         family gdas
           ...
@@ -33,13 +33,18 @@ The run families reuse the emitters of ``ForecastOnlyEcFlowSuite``.
 
 The first cycle only initializes the system (the "gdas_half" cycle of the
 Rocoto workflow): ``gdas`` and ``enkfgdas`` run a reduced set of tasks.
-It has a family of its own, called ``half``.
+It has a family of its own, named after its own ``PDYCYC``.
+
+The family name is fixed to the first cycle it runs; the date advances
+inside the family through the ``PDY`` variable, which ``cycle_begin``
+updates each pass.
 
 The ``cycle_begin`` task of a family starts a cycle.  It runs once the
 previous cycle has started its forecast.  It hands the date (``PDY``) and
 the log directory (``LOGDIR``) of the next cycle to the next cycle family
-and requeues that family, whose run families wait for its own
-``cycle_begin``.  See ``dev/ecflow/scripts/cycle_begin.ecf``.
+(named by the ``NEXT_FAMILY`` variable) and requeues that family, whose
+run families wait for its own ``cycle_begin``.  See
+``dev/ecflow/scripts/cycle_begin.ecf``.
 
 Dependencies between runs and cycles are written in the task triggers as
 ``ref()`` placeholders, which this class turns into absolute ecFlow paths.
@@ -74,8 +79,8 @@ HALF_CYCLE_TASKS = {
 # The Rocoto workflow defines no cycle for this task.
 NEVER_RUN = (('enkfgfs', 'stage_ic'),)
 
-# Family of the first cycle, which runs the reduced set of tasks.
-HALF_FAMILY = 'half'
+# Grouping key of the first cycle, which runs the reduced set of tasks.
+HALF_KEY = 'half'
 
 # Task that starts a cycle.
 CYCLE_BEGIN = 'cycle_begin'
@@ -327,15 +332,30 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
 
     # -- Cycle families ------------------------------------------------
 
-    def _family_name(self, cycle: datetime) -> str:
-        """Return the cycle family that runs *cycle*."""
+    def _group_key(self, cycle: datetime) -> str:
+        """Return the key of the family that runs *cycle*.
+
+        Cycles of the same hour share a family, except the first cycle,
+        which runs a reduced set of tasks in a family of its own.
+        """
         if cycle == self._sdate and any(
                 run in HALF_CYCLE_TASKS for run in self._cycles[cycle]):
-            return HALF_FAMILY
+            return HALF_KEY
         return cycle.strftime('%H')
+
+    def _family_name(self, cycle: datetime) -> str:
+        """Return the name of the family that runs *cycle*.
+
+        The name is the ``PDYCYC`` of the first cycle the family runs.
+        """
+        return self._family_names[self._group_key(cycle)]
 
     def _group_cycles(self) -> Dict[str, List[datetime]]:
         """Group the cycles by the family that runs them.
+
+        Builds ``self._family_names`` (``group key`` -> family name) and
+        returns the cycles of each family, keyed by the family name and in
+        time order.
 
         Raises
         ------
@@ -343,18 +363,31 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
             If the cycles of one hour do not run the same runs, because
             they could not share a family.
         """
-        families: Dict[str, List[datetime]] = {}
+        groups: Dict[str, List[datetime]] = {}
         for cycle in self._cycles:
-            families.setdefault(self._family_name(cycle), []).append(cycle)
+            groups.setdefault(self._group_key(cycle), []).append(cycle)
 
-        for name, cycles in families.items():
+        for key, cycles in groups.items():
             if len({tuple(self._cycles[cycle]) for cycle in cycles}) > 1:
                 raise ValueError(
-                    f"The cycles at {name}Z do not all run the same runs, so "
+                    f"The cycles at {key}Z do not all run the same runs, so "
                     "they cannot share a cycle family.  Start the gfs cycles "
                     "at the first full cycle, or use an interval_gfs that "
                     "divides 24 hours.")
-        return families
+
+        self._family_names = {key: cycles[0].strftime('%Y%m%d%H')
+                              for key, cycles in groups.items()}
+        return {self._family_names[key]: cycles
+                for key, cycles in groups.items()}
+
+    def _next_family(self, cycles: List[datetime]) -> Optional[str]:
+        """Return the name of the family that runs the cycle after *cycles*.
+
+        None when the next cycle hour has no family (a short run that does
+        not reach it); such a family is always the last one.
+        """
+        next_key = (cycles[0] + self._assim_freq).strftime('%H')
+        return self._family_names.get(next_key)
 
     def _cycle_node(self, cycle_str: str) -> str:
         return self._family_name(datetime.strptime(cycle_str, '%Y%m%d%H'))
@@ -376,9 +409,12 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
         lines = [f'  family {name}',
                  f"    edit PDY '{first.strftime('%Y%m%d')}'",
                  f"    edit CYC '{first.strftime('%H')}'",
-                 f"    edit RUNS '{' '.join(self._cycles[first])}'",
-                 self._log_dir_edit(first_str, indent=4),
-                 '']
+                 f"    edit RUNS '{' '.join(self._cycles[first])}'"]
+        next_family = self._next_family(cycles)
+        if next_family:
+            lines.append(f"    edit NEXT_FAMILY '{next_family}'")
+        lines.append(self._log_dir_edit(first_str, indent=4))
+        lines.append('')
         for cycle in cycles[1:]:
             self._log_dirs.add(self._log_dir(cycle.strftime('%Y%m%d%H')))
 
