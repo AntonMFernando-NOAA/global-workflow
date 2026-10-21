@@ -92,7 +92,7 @@ class EcFlowSuite(WorkflowSuite, ABC):
             f"#SBATCH --nodes={resources['nodes']}",
             f"#SBATCH --ntasks-per-node={resources['ppn']}",
             f"#SBATCH --cpus-per-task={resources['threads']}",
-            "#SBATCH --output=%LOGDIR%/%LOG_NAME%.log.%ECF_TRYNO%",
+            "#SBATCH --output=%LOGDIR%/%LOG_NAME%.log",
         ]
         if resources.get('memory'):
             memory_mb = self._memory_to_mb(resources['memory'])

@@ -180,7 +180,7 @@ ecflow_client --get_state /my_gefs_test/gefs/2021032312/fcst_member/mem001
 ecflow_client --requeue=aborted /my_gefs_test
 
 # Job output
-ls ${COMROOT}/my_gefs_test/logs/2021032312/   # <run>_<task>.log.<try>
+ls ${COMROOT}/my_gefs_test/logs/2021032312/   # <run>_<task>.log
 ls ${EXPDIR}/ecfjobs/                          # ecFlow .job files
 ```
 

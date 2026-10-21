@@ -1013,8 +1013,9 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
         lines.append(f"{sp}")
 
+        submit_job = os.path.join(self.HOMEglobal, 'dev', 'ecflow', 'submit_job.sh')
         lines.append(f"{sp}# Slurm job submission - #SBATCH directives are baked into the .ecf files")
-        lines.append(f"{sp}edit ECF_JOB_CMD  'sbatch %ECF_JOB%'")
+        lines.append(f"{sp}edit ECF_JOB_CMD  '{submit_job} %ECF_JOB% %LOGDIR% %LOG_NAME%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
         lines.append(f"{sp}")

@@ -136,7 +136,7 @@ run_ecflow_case.py                              ← entry point
       │                 ├── builds .def lines:
       │                 │     suite my_C48_test
       │                 │       edit ECF_HOME '...'
-      │                 │       edit ECF_JOB_CMD 'sbatch %ECF_JOB%'
+      │                 │       edit ECF_JOB_CMD 'submit_job.sh %ECF_JOB% ...'
       │                 │       edit EXPDIR '...'
       │                 │       ...
       │                 │       family 2021032312

@@ -122,7 +122,7 @@ ecflow_client --begin=my_gefs_test
   |
   +-- preprocess %include <head.h>, %FHR_LIST%, %ENSMEM:% ... -> .job
   |
-  +-- ECF_JOB_CMD:  sbatch <job>
+  +-- ECF_JOB_CMD:  submit_job.sh <job> (rotates the old log, then sbatch)
   |
   +-- on the compute node:
   |     #SBATCH    resources baked in by _sbatch_header()
