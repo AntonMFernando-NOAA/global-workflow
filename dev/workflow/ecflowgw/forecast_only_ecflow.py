@@ -473,7 +473,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
 
-        lines += self._resource_edits(res, fsp)
         lines.append('')
 
         for mem in range(1, self._nmem + 1):
@@ -564,8 +563,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
                     td_copy['resources']
                 lines.append(f'{msp}task {task_name}')
                 lines.append(f"{tsp}edit TASK '{task_name}'")
-                lines += self._resource_edits(
-                    td_copy['resources'], tsp)
             lines.append('')
 
             lines.append(f'{fsp}endfamily')
@@ -595,7 +592,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         base_walltime = res.get('walltime', '00:15:00')
 
         lines = []
-        lines += self._resource_edits(res, sp, skip_walltime=True)
         lines.append(f"{sp}# {len(fhrs)} forecast hours in {ngroups} groups")
         lines.append('')
 
@@ -612,7 +608,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
             lines.append(f'{sp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
-            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
             lines.append('')
 
         return lines
@@ -704,7 +699,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines = [f'{sp}task {task_name}',
                  f"{tsp}edit TASK '{task_name}'"]
         lines += self._ecf_files_edit(task_name, tsp)
-        lines += self._resource_edits(res, tsp)
         for name, value in task_dict.get('envars', {}).items():
             lines.append(f"{tsp}edit {name} '{value}'")
         if trigger:
@@ -729,7 +723,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._ecf_files_edit(task_name, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-        lines += self._resource_edits(res, fsp)
         lines.append('')
 
         for seg in range(num_segments):
@@ -768,7 +761,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._ecf_files_edit(task_name, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-        lines += self._resource_edits(res, fsp, skip_walltime=True)
         lines.append('')
 
         for grp in groups:
@@ -784,7 +776,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
 
             lines.append(f'{fsp}task {label}')
             lines.append(f"{tsp}edit FHR_LIST '{fhr_list_str}'")
-            lines.append(f"{tsp}edit WALLTIME '{grp_walltime}'")
             lines.append('')
 
         lines.append(f'{sp}endfamily')
@@ -806,7 +797,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._ecf_files_edit(task_name, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-        lines += self._resource_edits(res, fsp)
         lines.append('')
 
         for child, tarball_type in task_dict['children'].items():
@@ -839,7 +829,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines += self._ecf_files_edit(script, fsp, task_name)
         if trigger:
             lines.append(f'{fsp}trigger {trigger}')
-        lines += self._resource_edits(res, fsp)
         lines.append('')
 
         for child, envars in task_dict['children'].items():
@@ -911,35 +900,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         if scope_name:
             ecf_dir = ecf_dir / scope_name
         return [f"{indent_str}edit ECF_FILES '{ecf_dir}'"]
-
-    # ── Resource edits ────────────────────────────────────────────────
-
-    def _resource_edits(self, res: Dict, indent_str: str, *,
-                        skip_walltime: bool = False) -> List[str]:
-        """Emit per-task resource edit lines."""
-        lines = []
-        walltime = res.get('walltime', '00:30:00')
-        nodes = res.get('nodes', 1)
-        ppn = res.get('ppn', 1)
-        threads = res.get('threads', 1)
-        partition = res.get('partition')
-        native = res.get('native', '')
-        is_exclusive = native and '--exclusive' in str(native)
-
-        if not skip_walltime:
-            lines.append(f"{indent_str}edit WALLTIME '{walltime}'")
-        if nodes > 1:
-            lines.append(f"{indent_str}edit NODES '{nodes}'")
-        if ppn > 1:
-            lines.append(f"{indent_str}edit NTASKS '{ppn}'")
-        if threads > 1:
-            lines.append(f"{indent_str}edit CPUS_PER_TASK '{threads}'")
-        if partition and partition != self._base.get('PARTITION_BATCH'):
-            lines.append(f"{indent_str}edit QUEUE '{partition}'")
-        if is_exclusive:
-            lines.append(f"{indent_str}edit EXCLUSIVE 'YES'")
-
-        return lines
 
     # ── ecf_scripts management ────────────────────────────────────────
 
@@ -1053,7 +1013,7 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit ECF_FILES   '{ecf_scripts_dir}'")
         lines.append(f"{sp}")
 
-        lines.append(f"{sp}# Slurm job submission commands")
+        lines.append(f"{sp}# Slurm job submission - #SBATCH directives are baked into the .ecf files")
         lines.append(f"{sp}edit ECF_JOB_CMD  'sbatch %ECF_JOB%'")
         lines.append(f"{sp}edit ECF_KILL_CMD 'scancel %ECF_RID%'")
         lines.append(f"{sp}edit ECF_STATUS_CMD 'squeue -j %ECF_RID%'")
@@ -1091,13 +1051,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         dataroot = f"{base.get('STMP', '/tmp')}/RUNDIRS/{self.pslot}"
         lines.append(f"{sp}edit DATAROOT   '{dataroot}'")
         lines.append(f"{sp}")
-
-        lines.append(f"{sp}# Slurm resource defaults (overridden per-task)")
-        lines.append(f"{sp}edit WALLTIME '00:30:00'")
-        lines.append(f"{sp}edit NODES    '1'")
-        lines.append(f"{sp}edit NTASKS   '1'")
-        lines.append(f"{sp}edit CPUS_PER_TASK '1'")
-        lines.append(f"{sp}edit EXCLUSIVE 'NO'")
 
         return lines
 
