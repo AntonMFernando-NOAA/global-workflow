@@ -54,6 +54,7 @@ one cycle.
 """
 
 import os
+import re
 from logging import getLogger
 from pathlib import Path
 from typing import Dict, List, Set
@@ -72,6 +73,16 @@ _SENTINEL_MAP = {
     '__ALL_MEMBER_WAVEPOSTGRIDDED__': 'wavepostgridded',
 }
 
+# Log names that differ from the Rocoto ones once built from the node names.
+# The archive jobs look the logs up by their Rocoto names.
+_LOG_NAME_RULES = (
+    (re.compile(r'_(ecen|epos)_grp(\d+)$'), r'_\1\2'),
+    (re.compile(r'_efcs_mem(\d+)$'), r'_fcst_mem\1'),
+    (re.compile(r'_earc_tars_grp(\d+)$'), r'_earc_tars_\1'),
+    (re.compile(r'_arch_tars_arch_tar_'), '_arch_tar_'),
+    (re.compile(r'^(gdas|gfs)_fcst$'), r'\1_fcst_seg0'),
+    (re.compile(r'_(f\d{3})_(f\d{3})$'), r'_\1-\2'),
+)
 
 # Run-level families that group related tasks, in emission order.
 _TASK_FAMILY = {
@@ -365,6 +376,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
             elif words[0] == 'task':
                 parts = [fam for fam in families if fam not in grouping]
                 log_name = '_'.join(parts + [words[1]])
+                for pattern, replacement in _LOG_NAME_RULES:
+                    log_name = pattern.sub(replacement, log_name)
                 indent = ' ' * (len(line) - len(line.lstrip()) + 2)
                 named.append(f"{indent}edit LOG_NAME '{log_name}'")
         return named

@@ -42,5 +42,25 @@ class TestLogNames:
                  'endfamily']
         named = ForecastOnlyEcFlowSuite._add_log_names(lines)
         assert "      edit LOG_NAME 'gefs_stage_ic'" in named
-        assert "        edit LOG_NAME 'gefs_atmos_prod_mem001_f000_f006'" in named
+        assert "        edit LOG_NAME 'gefs_atmos_prod_mem001_f000-f006'" in named
         assert len(named) == len(lines) + 2
+
+    def test_add_log_names_match_rocoto(self):
+        lines = ['family enkfgdas',
+                 '  family ecen',
+                 '    task grp000',
+                 '  endfamily',
+                 '  family efcs',
+                 '    task mem001',
+                 '  endfamily',
+                 'endfamily',
+                 'family gfs',
+                 '  task fcst',
+                 '  family arch_tars',
+                 '    task arch_tar_gfsa',
+                 '  endfamily',
+                 'endfamily']
+        named = ForecastOnlyEcFlowSuite._add_log_names(lines)
+        log_names = [line.split("'")[1] for line in named if 'LOG_NAME' in line]
+        assert log_names == ['enkfgdas_ecen000', 'enkfgdas_fcst_mem001',
+                             'gfs_fcst_seg0', 'gfs_arch_tar_gfsa']

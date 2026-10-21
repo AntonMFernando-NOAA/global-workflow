@@ -492,7 +492,7 @@ ecflow_client --get_state /C48_ATM_ecflow
 ecflow_client --get_state /C48_ATM_ecflow/gfs/2021032312/fcst
 
 # View job output for a task
-cat ${COMROOT}/C48_ATM_ecflow/logs/2021032312/gfs_fcst.log
+cat ${COMROOT}/C48_ATM_ecflow/logs/2021032312/gfs_fcst_seg0.log
 ```
 
 ### Log files
@@ -500,7 +500,7 @@ cat ${COMROOT}/C48_ATM_ecflow/logs/2021032312/gfs_fcst.log
 As in the Rocoto workflow, task logs are written to one directory per cycle,
 `{ROTDIR}/logs/<cycle>/`, named `<run>_<task>.log`, the same names Rocoto uses
 (the archive job looks for them). Product and tarball tasks add their group,
-for example `gfs_atmos_prod_f000_f002.log`. The log of the latest try always
+for example `gfs_atmos_prod_f000-f002.log`. The log of the latest try always
 has this plain name. When a task is rerun or retried, `dev/ecflow/submit_job.sh`
 first renames the previous log to `<run>_<task>.log.0`, then `.log.1`, and so
 on, instead of overwriting it:
