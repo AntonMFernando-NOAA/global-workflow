@@ -326,13 +326,15 @@ cycle of that hour reuses, and a family per run inside it: `gdas`,
 `cleanup` for `gdas`, and the initial forecast and ensemble post tasks for
 `enkfgdas`, like the `gdas_half` cycle of the Rocoto workflow.
 
-Each cycle family starts with the task `cycle_begin`
-(`dev/ecflow/scripts/cycle_begin.ecf`). It waits for the previous cycle to
-start its `gdas` forecast, and for the `gfs` forecast of two cycles ago to
-stop running. It sets `PDY` and `LOGDIR` of the next cycle family and
-requeues that family. The run families wait for the `cycle_begin` of their
-cycle. This is the method of `dev/ecf/gfs/defs/gfs_prod.def`, which keeps a
-family per cycle hour instead of one per cycle.
+Each cycle family starts once the previous cycle has started its `gdas`
+forecast, and the `gfs` forecast of two cycles ago has stopped running (a
+`trigger` on the family). The tail of every job
+(`dev/ecflow/include/tail.h`) prepares the next cycle: it sets `PDY` and
+`LOGDIR` of the next cycle family and requeues that family once it is
+complete. Only the first task that ends after the family completes does
+this; later tasks find it done and skip it. This is the method of
+`dev/ecf/gfs/defs/gfs_prod.def`, which keeps a family per cycle hour instead
+of one per cycle.
 
 A dependency that points to different tasks in the cycles that share a
 family, for example the first full cycle that follows `half`, is written

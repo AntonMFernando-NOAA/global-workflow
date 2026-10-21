@@ -10,13 +10,12 @@ family is named after the ``PDYCYC`` (``YYYYMMDDHH``) of its first cycle::
 
     suite {pslot}
       family 2021122012                      # first cycle, reduced tasks
-        task cycle_begin
         family gdas
           ...
         endfamily
       endfamily
       family 2021122018                      # reused by every 18Z cycle
-        task cycle_begin
+        trigger <previous gdas fcst started>
         family gdas
           ...
         endfamily
@@ -36,15 +35,15 @@ Rocoto workflow): ``gdas`` and ``enkfgdas`` run a reduced set of tasks.
 It has a family of its own, named after its own ``PDYCYC``.
 
 The family name is fixed to the first cycle it runs; the date advances
-inside the family through the ``PDY`` variable, which ``cycle_begin``
-updates each pass.
+inside the family through the ``PDY`` variable.
 
-The ``cycle_begin`` task of a family starts a cycle.  It runs once the
-previous cycle has started its forecast.  It hands the date (``PDY``) and
-the log directory (``LOGDIR``) of the next cycle to the next cycle family
-(named by the ``NEXT_FAMILY`` variable) and requeues that family, whose
-run families wait for its own ``cycle_begin``.  See
-``dev/ecflow/scripts/cycle_begin.ecf``.
+The tail of every job (``dev/ecflow/include/tail.h``) prepares the next
+cycle: it sets ``PDY`` and ``LOGDIR`` of the next cycle family (named by
+the ``NEXT_FAMILY`` variable) and requeues it once it is complete.  Only
+the first task that ends after the family completes does the hand-over.
+
+A cycle family starts once the previous cycle has started its forecast
+(its ``trigger``, see ``_begin_condition``).
 
 Dependencies between runs and cycles are written in the task triggers as
 ``ref()`` placeholders, which this class turns into absolute ecFlow paths.
@@ -81,9 +80,6 @@ NEVER_RUN = (('enkfgfs', 'stage_ic'),)
 
 # Grouping key of the first cycle, which runs the reduced set of tasks.
 HALF_KEY = 'half'
-
-# Task that starts a cycle.
-CYCLE_BEGIN = 'cycle_begin'
 
 
 class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
@@ -392,34 +388,31 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
     def _cycle_node(self, cycle_str: str) -> str:
         return self._family_name(datetime.strptime(cycle_str, '%Y%m%d%H'))
 
-    def _run_family_attributes(self, indent: int) -> List[str]:
-        # The run waits for cycle_begin, which requeues it
-        cycle_path = self._run_path.rsplit('/', 1)[0]
-        return [f"{' ' * indent}trigger {cycle_path}/{CYCLE_BEGIN} == complete"]
-
     def _emit_cycle_family(self, name: str, cycles: List[datetime]) -> List[str]:
         """Emit the family shared by *cycles*.
 
-        The variables hold the values of the first cycle; ``cycle_begin``
-        sets them for the next cycle.
+        The variables hold the values of the first cycle; the tail of
+        every job (``dev/ecflow/include/tail.h``) sets them for the next
+        cycle.  The family starts once ``_begin_condition`` holds.
         """
         first = cycles[0]
         first_str = first.strftime('%Y%m%d%H')
 
         lines = [f'  family {name}',
                  f"    edit PDY '{first.strftime('%Y%m%d')}'",
-                 f"    edit CYC '{first.strftime('%H')}'",
-                 f"    edit RUNS '{' '.join(self._cycles[first])}'"]
+                 f"    edit CYC '{first.strftime('%H')}'"]
         next_family = self._next_family(cycles)
         if next_family:
             lines.append(f"    edit NEXT_FAMILY '{next_family}'")
         lines.append(self._log_dir_edit(first_str, indent=4))
+        trigger = self._combine_by_cycle(
+            name, {cycle: self._begin_condition(cycle) for cycle in cycles})
+        if trigger:
+            lines.append(f'    trigger {trigger}')
         lines.append('')
         for cycle in cycles[1:]:
             self._log_dirs.add(self._log_dir(cycle.strftime('%Y%m%d%H')))
 
-        lines += self._emit_cycle_begin(name, cycles)
-        lines.append('')
         for run in self._cycles[first]:
             self._select_run(run)
             self._ecf_prefix = run
@@ -429,32 +422,13 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
         lines.append('')
         return lines
 
-    def _emit_cycle_begin(self, family: str, cycles: List[datetime]) -> List[str]:
-        """Emit the ``cycle_begin`` task of a cycle family.
-
-        The task starts once the previous cycle has started its gdas
-        forecast and, when the gfs ran two cycles ago, once that gfs
-        forecast is no longer running.  The first cycle has no trigger.
-        """
-        self._select_run(RUN_ORDER[0])
-        self._ecf_prefix = ''
-        resources = self._tasks.get_resource('cleanup')
-        self._copy_maps.setdefault('', (RUN_ORDER[0], {}))[1][
-            (CYCLE_BEGIN, CYCLE_BEGIN, None)] = resources
-
-        trigger = self._combine_by_cycle(
-            family, {cycle: self._begin_condition(cycle) for cycle in cycles})
-        lines = [f'    task {CYCLE_BEGIN}',
-                 f"      edit TASK '{CYCLE_BEGIN}'",
-                 f"      edit LOG_NAME '{CYCLE_BEGIN}'"]
-        lines += self._ecf_files_edit(CYCLE_BEGIN, '      ')
-        lines += self._resource_edits(resources, '      ')
-        if trigger:
-            lines.append(f'      trigger {trigger}')
-        return lines
-
     def _begin_condition(self, cycle: datetime) -> Optional[str]:
-        """Return the trigger of ``cycle_begin`` in *cycle*, or None."""
+        """Return the condition that starts the family in *cycle*, or None.
+
+        The family starts once the previous cycle has started its gdas
+        forecast and, when the gfs ran two cycles ago, once that gfs
+        forecast is no longer running.  The first cycle has no condition.
+        """
         previous = cycle - self._assim_freq
         if previous not in self._cycles:
             return None
@@ -469,12 +443,12 @@ class GFSCycledEcFlowSuite(ForecastOnlyEcFlowSuite):
         return condition
 
     def _suite_variables(self, indent: int = 2) -> List[str]:
-        """Emit the suite variables and those ``cycle_begin`` needs."""
+        """Emit the suite variables and those the job tails need."""
         sp = ' ' * indent
         first_str = self._sdate.strftime('%Y%m%d%H')
         lines = super()._suite_variables(indent)
         lines.append(f'{sp}')
-        lines.append(f'{sp}# Cycling, used by cycle_begin')
+        lines.append(f'{sp}# Cycling, used by tail.h')
         lines.append(f"{sp}edit EDATE      '{self._base['EDATE'].strftime('%Y%m%d%H')}'")
         lines.append(f"{sp}edit ASSIM_FREQ '{int(self._assim_freq.total_seconds() // 3600)}'")
         lines.append(f"{sp}edit LOGROOT    '{os.path.dirname(self._log_dir(first_str))}'")

@@ -268,10 +268,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         """Return the name of the cycle family that holds the run family."""
         return cycle_str
 
-    def _run_family_attributes(self, indent: int) -> List[str]:
-        """Return extra attributes (such as a trigger) of the run family."""
-        return []
-
     def _emit_run_family(self, cycle_str: str, indent: int) -> List[str]:
         """Emit ``family {run}`` for the selected run and cycle.
 
@@ -307,7 +303,6 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f'{" " * indent}family {self._run}')
         indent += 2
         lines.append(f'{" " * indent}edit RUN \'{self._run}\'')
-        lines += self._run_family_attributes(indent)
         lines.append('')
 
         # Each entry is (family or None, emitter(indent) -> lines)
