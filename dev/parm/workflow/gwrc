@@ -5,7 +5,7 @@
 user:
   ACCOUNT: {{ 'HPC_ACCOUNT' | getenv }}
   HOMEDIR: 'default'
-  STMP: 'default'
+  STMP: {{ 'GW_STMP_OVERRIDE' | getenv('default') }}
   PTMP: 'default'
   NOSCRUB: 'default'
   HPSS_PROJECT: 'default'

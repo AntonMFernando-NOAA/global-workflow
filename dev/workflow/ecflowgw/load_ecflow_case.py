@@ -555,7 +555,9 @@ def run(default_yaml: Path = None) -> None:
         elif args.expdir:
             os.environ['RUNTESTS'] = str(args.expdir)
     if args.stmp:
-        os.environ['STMP'] = str(args.stmp)
+        # setup_expt reads this through the default gwrc to override the
+        # host STMP (a ~/.gwrc file, if present, takes precedence).
+        os.environ['GW_STMP_OVERRIDE'] = str(args.stmp)
 
     testconf = load_case_yaml(yaml_path)
     check_host_supported(testconf)
