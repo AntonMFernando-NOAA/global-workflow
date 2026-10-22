@@ -317,7 +317,8 @@ def parse_args(default_yaml: Path = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Override STMP (scratch/tmp) path used to build "
-             "DATAROOT = <stmp>/RUNDIRS/<pslot>.",
+             "the DATAROOT base = <stmp>/RUNDIRS/<pslot>. Each job uses "
+             "<base>/<run>.<PDYCYC>.",
     )
     parser.add_argument(
         "--ecf-host",

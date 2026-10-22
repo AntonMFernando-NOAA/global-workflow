@@ -1062,6 +1062,8 @@ class ForecastOnlyEcFlowSuite(EcFlowSuite):
         lines.append(f"{sp}edit HOMEglobal '{self.HOMEglobal}'")
         lines.append(f"{sp}edit EXPDIR     '{self.expdir}'")
         lines.append(f"{sp}edit COMROOT    '{base['COMROOT']}'")
+        # Base only: each script appends /<run>.<PDYCYC>, as Rocoto does, so
+        # cleanup of one run and cycle cannot remove another job's work dir.
         dataroot = f"{base.get('STMP', '/tmp')}/RUNDIRS/{self.pslot}"
         lines.append(f"{sp}edit DATAROOT   '{dataroot}'")
         lines.append(f"{sp}")

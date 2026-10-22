@@ -11,7 +11,7 @@ set -x
 export HOMEglobal=%HOMEglobal%
 export EXPDIR=%EXPDIR%
 export COMROOT=%COMROOT%
-export DATAROOT=%DATAROOT%
+export DATAROOT=%DATAROOT%/%RUN%.%PDY%%CYC%
 export NET=%NET%
 export PDY=%PDY%
 export cyc=%CYC%

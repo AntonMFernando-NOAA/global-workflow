@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from ecflowgw.ecflow_suite import EcFlowSuite
 from ecflowgw.forecast_only_ecflow import ForecastOnlyEcFlowSuite
 
@@ -64,3 +66,20 @@ class TestLogNames:
         log_names = [line.split("'")[1] for line in named if 'LOG_NAME' in line]
         assert log_names == ['enkfgdas_ecen000', 'enkfgdas_fcst_mem001',
                              'gfs_fcst_seg0', 'gfs_arch_tar_gfsa']
+
+
+class TestDataroot:
+
+    '''
+    Work directories of jobs from different runs and cycles must not overlap
+    '''
+
+    def test_scripts_use_run_and_cycle_dataroot(self):
+        ecflow_dir = Path(__file__).resolve().parents[2] / 'ecflow'
+        files = list((ecflow_dir / 'scripts').rglob('*.ecf'))
+        files.append(ecflow_dir / 'templates' / 'jobcard.ecf')
+        expected = 'export DATAROOT=%DATAROOT%/%RUN%.%PDY%%CYC%'
+        for path in files:
+            text = path.read_text()
+            if 'DATAROOT' in text:
+                assert expected in text.splitlines(), str(path)
