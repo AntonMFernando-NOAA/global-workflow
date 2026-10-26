@@ -12,17 +12,6 @@ with minor path adjustments.
 
 - NOAA RDHPCS account with Ursa access
 - PuTTY (Windows) or SSH client (Mac/Linux)
-- Global-workflow repo checked out on Ursa
-- **Build and link the workflow components** (REQUIRED before running any case):
-  - From the global-workflow repository root (`HOMEglobal`), run:
-    ```bash
-    cd sorc
-    ./build_all.sh [gfs|gefs|sfs|gcafs|gsi|gdas|all]
-    ./link_workflow.sh
-    ```
-  - `build_all.sh` compiles all forecast model components (GFS, GEFS, SFS, GCAFS, GSI, GDAS)
-  - `link_workflow.sh` assembles the runtime workflow by linking/copying dependencies, fix data, and configuration files to their operational locations
-  - Without these steps, the workflow cannot execute
 - Slurm scheduler access for job submission
 
 ## 0. Connecting to Ursa
@@ -257,9 +246,23 @@ ecflow_client --check_pt       # save server state
 ecflow_client --terminate=yes  # shut down the server process
 ```
 
+## 3. Build and Link Workflow Components
+
+> **Prerequisite:** Before running any forecast case, build and link the workflow
+> (one-time setup after cloning or updating the repository).
+
+```bash
+cd <path to your global-workflow clone>
+cd sorc
+./build_all.sh              # Compiles forecast model components
+./link_workflow.sh          # Links runtime dependencies and fix data
+```
+
+See `./build_all.sh -h` and `./link_workflow.sh -h` for options.
+
 ## Day-to-Day Operations (Quick Reference)
 
-Once steps 0–2 are done, this is all you need each day.
+Once steps 0–3 are done, this is all you need each day.
 
 ### Starting a new session
 
@@ -295,7 +298,7 @@ cd <path to your global-workflow clone>
 # Quick start (all defaults)
 python3 dev/workflow/ecflowgw/run_ecflow_case.py
 
-# Or with every option (all are optional; see "CLI options" in section 3)
+# Or with every option (all are optional; see "CLI options" in section 4)
 python3 dev/workflow/ecflowgw/run_ecflow_case.py \
     --yaml dev/ci/cases/ecflowpr/C48_ATM_ecflow.yaml \
     --pslot my_C48_test \
@@ -422,7 +425,7 @@ the server. When you reconnect, load the `module_gwsetup` module again
 (see [Starting a new session](#starting-a-new-session)); nothing else is
 needed.
 
-## 3. Run the C48_ATM Case
+## 4. Run the C48_ATM Case
 
 ### Quick start (all defaults)
 
@@ -479,7 +482,7 @@ port; it is the number in the `<host>.<port>.ecf.log` file name), and
 | `--ecf-port PORT` | Use this ecFlow port instead of the one found in the logs |
 | `--start-server` | Start the server over ssh if it does not answer (off by default) |
 
-## 4. Monitoring
+## 5. Monitoring
 
 ### ecflow_ui (GUI)
 
@@ -521,7 +524,7 @@ ls ${COMROOT}/C48_ATM_ecflow/logs/2021032312/
 ecFlow also writes its generated job scripts (`<task>.job<try>`) under
 `{EXPDIR}/ecfjobs/`, in the suite family tree, so they do not mix with the logs.
 
-## 5. Common Operations
+## 6. Common Operations
 
 ### Rerun a failed task
 
@@ -716,7 +719,7 @@ and what to do when it reports that no files were synced.
 python3 dev/workflow/ecflowgw/run_ecflow_case.py --overwrite
 ```
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 ### "Cannot reach ecFlow server" / wrong server
 
@@ -834,7 +837,7 @@ expected in the Ursa suite.
 If the values do not match, the experiment was generated before the
 change - regenerate with `--overwrite`.
 
-## 7. Directory Layout
+## 8. Directory Layout
 
 After a successful run, the experiment produces:
 
@@ -855,7 +858,7 @@ ${RUNTESTS}/
   RUNDIRS/C48_ATM_ecflow/           ← runtime scratch (cleaned up)
 ```
 
-## 8. Architecture Overview
+## 9. Architecture Overview
 
 The ecFlow engine mirrors the Rocoto architecture:
 
