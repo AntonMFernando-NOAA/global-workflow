@@ -10,24 +10,25 @@ User on Ursa login node (e.g. ufe01)
 │   On uecflow01:
 │   ├── module load ecflow
 │   ├── export ECF_PORT=$(( $(id -u) + 1500 ))
-│   ├── export ECF_HOME=/scratch3/NCEPDEV/global/$USER/ecflow
+│   ├── export ECF_HOME=$HOME/ecflow
 │   ├── mkdir -p ${ECF_HOME}
 │   ├── ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}
 │   │     └── starts ecflow_server daemon on uecflow01:${ECF_PORT}
 │   └── exit                         # back to login node
 │
-│   Back on login node (ufe01):
-├── module load ecflow
-├── unset ECF_HOSTFILE
-├── export ECF_HOST=uecflow01        # point client to the ecFlow node
-├── export ECF_PORT=$(( $(id -u) + 1500 ))
-├── export ECF_HOME=/scratch3/NCEPDEV/global/$USER/ecflow
-├── export HOMEglobal=/scratch3/NCEPDEV/global/$USER/global-workflow
-├── export MACHINE_ID=URSA           # workaround for ufe node detection
-├── export HPC_ACCOUNT=fv3-cpu       # Slurm account for job submission
+│   Back on login node (ufe01): nothing to export.
+│   run_ecflow_case.py loads the ecflow module, ignores ECF_HOSTFILE and
+│   finds the server by itself (see "Server discovery" in Step 1).
 │
-└── ecflow_client --ping
-      └── "ping server(uecflow01:24385) succeeded"
+│   Optional, per command only:
+│     MACHINE_ID=URSA HPC_ACCOUNT=fv3-cpu python3 .../run_ecflow_case.py
+│       MACHINE_ID  workaround for ufe node detection
+│       HPC_ACCOUNT Slurm account for job submission (default fv3-cpu)
+│
+└── Check the server by hand (only if you want to):
+      module load ecflow
+      ecflow_client --host=uecflow01 --port=$(( $(id -u) + 1500 )) --ping
+      └── "ping server(uecflow01:<port>) succeeded"
 ```
 
 If the server has stopped (node reboot, etc.):
@@ -36,33 +37,47 @@ If the server has stopped (node reboot, etc.):
 ├── ssh uecflow01
 │   ├── module load ecflow
 │   ├── export ECF_PORT=$(( $(id -u) + 1500 ))
-│   ├── export ECF_HOME=/scratch3/NCEPDEV/global/$USER/ecflow
+│   ├── export ECF_HOME=$HOME/ecflow
 │   ├── ps -u $USER -f | grep ecflow_server   # check if running
 │   ├── ecflow_start.sh -p ${ECF_PORT} -d ${ECF_HOME}   # restart
 │   │     └── restores state from checkpoint — suites reappear
 │   └── exit
 │
-└── ecflow_client --ping             # verify from login node
+└── re-run run_ecflow_case.py              # it finds the restarted server
+      or run it with --start-server        # opt-in: it does the ssh/restart
+                                           # above itself when the ping fails
 ```
 
 ## Step 1: Launch the Test Case
 
 ```
-$ python3 dev/workflow/ecflow/run_ecflow_case.py
+$ python3 dev/workflow/ecflowgw/run_ecflow_case.py
 
 run_ecflow_case.py                              ← entry point
-│   (dev/workflow/ecflow/run_ecflow_case.py)
+│   (dev/workflow/ecflowgw/run_ecflow_case.py)
 │
 ├── sets default YAML = dev/ci/cases/pr/C48_ATM.yaml
 │
 └── calls load_ecflow_case.run(default_yaml)
-      │   (dev/workflow/ecflow/load_ecflow_case.py)
+      │   (dev/workflow/ecflowgw/load_ecflow_case.py)
       │
       ├── parse_args()
-      │     reads --yaml, --pslot, --expdir, --comroot, --stmp, --overwrite
+      │     reads --yaml, --pslot, --expdir, --comroot, --stmp, --overwrite,
+      │           --ecf-host, --ecf-port, --ecf-home, --start-server
       │
-      ├── validate_environment()
-      │     checks ECF_HOST, ECF_PORT, ECF_HOME, HOMEglobal are set
+      ├── select_server(ecf_host, ecf_port, ecf_home)      <- Server discovery
+      │     ├── --ecf-port (or $ECF_PORT) given?  use it, no search
+      │     ├── else list <ecf_home>/<host>.<port>.ecf.log, newest first
+      │     │     (ecflow_start.sh writes one per server, so the file
+      │     │      name holds the host and the port)
+      │     ├── ping each one; the first that answers is used
+      │     ├── none answers?  newest one is kept and the ping in step 3
+      │     │     reports it
+      │     └── no log at all?  uecflow01 and UID + 1500
+      │     ecflow_client always gets --host/--port and runs with the
+      │     ecflow module loaded and ECF_HOSTFILE removed (child process
+      │     only, the login shell is not touched)
+      │     HOMEglobal comes from the location of this script
       │
       ├── load_case_yaml(yaml_path)
       │     │  parses C48_ATM.yaml with Jinja2
@@ -106,17 +121,17 @@ run_ecflow_case.py                              ← entry point
       │           │           [stage_ic, fcst, atmos_prod, tracker, genesis, arch_vrfy, cleanup]
       │           │
       │           ├── ecflow_suite_factory.create("gfs_forecast-only", app_config, ecflow_config)
-      │           │     │   (dev/workflow/ecflow/ecflow_suite_factory.py)
+      │           │     │   (dev/workflow/ecflowgw/ecflow_suite_factory.py)
       │           │     └── returns GFSForecastOnlyEcFlowSuite instance
       │           │
       │           └── suite.write()
-      │                 │   (dev/workflow/ecflow/gfs_forecast_only_ecflow.py)
+      │                 │   (dev/workflow/ecflowgw/gfs_forecast_only_ecflow.py)
       │                 │
       │                 ├── __init__():
       │                 │     ecflow_tasks_factory.create("gfs", app_config, "gfs")
-      │                 │       (dev/workflow/ecflow/ecflow_tasks_factory.py)
+      │                 │       (dev/workflow/ecflowgw/ecflow_tasks_factory.py)
       │                 │       → GFSEcFlowTasks instance
-      │                 │           (dev/workflow/ecflow/gfs_ecflow_tasks.py)
+      │                 │           (dev/workflow/ecflowgw/gfs_ecflow_tasks.py)
       │                 │
       │                 ├── builds .def lines:
       │                 │     suite my_C48_test
@@ -134,7 +149,7 @@ run_ecflow_case.py                              ← entry point
       │                 │     task_dict = GFSEcFlowTasks.get_ecflow_task(task_name)
       │                 │       │   dispatches to e.g. self.fcst()
       │                 │       │   calls self._simple_task() or self._product_task()
-      │                 │       │     (dev/workflow/ecflow/ecflow_tasks.py)
+      │                 │       │     (dev/workflow/ecflowgw/ecflow_tasks.py)
       │                 │       │   calls Tasks.get_resource() from parent class
       │                 │       │     (dev/workflow/rocoto/tasks.py — inherited)
       │                 │       └── returns dict:
@@ -160,18 +175,24 @@ run_ecflow_case.py                              ← entry point
       ├── [Step 3/4] load_suite(suite_name, def_file)
       │     │
       │     ├── ecflow_client --ping         (verify server alive on uecflow01)
+      │     │     └── no answer + --start-server (opt-in):
+      │     │           ssh uecflow01 "ecflow_start.sh -p <port> -d <ecf_home>"
+      │     │           then ping again for up to 30 s
+      │     │         no answer without --start-server: error, exit
       │     ├── ecflow_client --delete=force  (remove old suite if exists)
       │     └── ecflow_client --load=<def>   (load .def into server)
       │
       └── prints:
             "Suite loaded but NOT started."
-            "ecflow_client --begin=my_C48_test"
+            "ecflow_client --host=uecflow01 --port=<port> --begin=my_C48_test"
 ```
 
 ## Step 2: Begin the Suite
 
 ```
-$ ecflow_client --begin=my_C48_test
+$ module load ecflow
+$ ecflow_client --host=uecflow01 --port=<port> --begin=my_C48_test
+  (the exact command with your host and port is printed by run_ecflow_case.py)
 
 ecflow_server (on uecflow01)
 │
@@ -298,8 +319,10 @@ ecflow_server (on uecflow01) receives --complete for stage_ic
 ## Step 6: Monitor and Troubleshoot
 
 ```
-# All client commands run from any login node (ufe01, etc.)
-# with ECF_HOST=uecflow01
+# All client commands run from any login node (ufe01, etc.) after
+# "module load ecflow". Add --host=uecflow01 --port=<port> to each command
+# (shown below without them for readability); the port is printed by
+# run_ecflow_case.py and is in the <host>.<port>.ecf.log file name.
 
 $ ecflow_client --get_state /my_C48_test
   /my_C48_test {state:active}
@@ -331,5 +354,5 @@ $ ecflow_ui &
 
 # Delete and start over
 $ ecflow_client --delete=force yes /my_C48_test
-$ python3 dev/workflow/ecflow/run_ecflow_case.py
+$ python3 dev/workflow/ecflowgw/run_ecflow_case.py
 ```
