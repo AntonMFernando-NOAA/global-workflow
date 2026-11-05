@@ -8,12 +8,11 @@
 #      previous-cycle gdas/enkfgdas data exists and link that data into COMDIR.
 #   2. Load and begin the suite in gfs_dev.def if it is not begun yet. All cycle
 #      families start suspended, so nothing runs at begin.
-#   3. Force the previous cycle family complete, which satisfies the cross-cycle
-#      triggers of the first cycle.
-#   4. For each of the NCYCLES cycles: set PDY on the cycle family, requeue and
-#      resume it, then wait for it to complete before starting the next one.
-#      After cycle 18 the PDY moves to the next day, so 6 cycles from 06 are
-#      06, 12, 18 on PDY and 00, 06, 12 on PDY+1.
+#   3. For each of the NCYCLES cycles: requeue and resume the cycle family named
+#      PDYCYC (the setup script renders one family per cycle, each with its own PDY),
+#      then wait for it to complete before starting the next one. After cycle 18
+#      the PDY moves to the next day, so 6 cycles from 06 are 06, 12, 18 on PDY
+#      and 00, 06, 12 on PDY+1.
 #
 # Usage: gfsv17_ecflow_rt_run_cycles.sh [-p PDY -c CYC] [-n NCYCLES] [-d DEF]
 #          [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [-h]
@@ -47,7 +46,6 @@ DEF_FILE=""
 SUITE=${SUITE:-gfs_v17_nco}
 POLL_SECONDS=${POLL_SECONDS:-60}
 ECFLOW_CLIENT=${ECFLOW_CLIENT:-ecflow_client}
-CYCLES=(00 06 12 18)
 
 usage() {
   sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -155,7 +153,6 @@ if ((stage_rc != 0)); then
 fi
 pdy=$(sed -n 's/^PDY=//p' <<< "${stage_out}")
 cyc=$(sed -n 's/^CYC=//p' <<< "${stage_out}")
-prev_cyc=$(sed -n 's/^PREV_CYC=//p' <<< "${stage_out}")
 
 if ! ecf --ping > /dev/null 2>&1; then
   echo "ERROR: cannot reach the ecflow server; check ECF_HOST and ECF_PORT" >&2
@@ -184,25 +181,14 @@ family_exists() {
   ecf --query state "/${SUITE}/primary/$1" > /dev/null 2>&1
 }
 
-# Keep every cycle from running until its turn
-if ! family_exists "${cyc}"; then
-  echo "ERROR: ${DEF_FILE} has no family ${cyc}; render it again with -c ${cyc} (setup script)" >&2
-  exit 1
-fi
-for family_cyc in "${CYCLES[@]}"; do
-  if family_exists "${family_cyc}"; then
-    ecf --suspend="/${SUITE}/primary/${family_cyc}" || exit 1
-  fi
-done
-# The definition has no family for the cycle before the first one if it only holds the cycles to run
-if family_exists "${prev_cyc}"; then
-  ecf --force=complete recursive "/${SUITE}/primary/${prev_cyc}" || exit 1
-fi
-
+# Every cycle family in the definition starts suspended and waits for its turn
 for ((n = 1; n <= ncycles; n++)); do
-  family="/${SUITE}/primary/${cyc}"
+  family="/${SUITE}/primary/${pdy}${cyc}"
   echo "Cycle ${n} of ${ncycles}: ${pdy}${cyc}"
-  ecf --alter=change variable PDY "${pdy}" "${family}" || exit 1
+  if ! family_exists "${pdy}${cyc}"; then
+    echo "ERROR: ${DEF_FILE} has no family ${pdy}${cyc}; render it again with -n ${ncycles} (setup script)" >&2
+    exit 1
+  fi
   ecf --requeue "${family}" || exit 1
   ecf --resume="${family}" || exit 1
   wait_for_cycle "${family}"

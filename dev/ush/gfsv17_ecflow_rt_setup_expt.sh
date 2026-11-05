@@ -19,9 +19,9 @@
 #      regenerate.
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
-#      above. With -c, the definition only holds the cycle families that -n cycles
-#      from -c use, in run order (without -c all four families, from 00). It is
-#      rendered again on every run.
+#      above. The definition has one family per cycle, named PDYCYC (for example
+#      2026010512), for the -n cycles from -p/-c, in run order, each with its own PDY.
+#      It is rendered again on every run.
 #   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
 #      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
@@ -40,8 +40,8 @@
 #   --expdir-src DIR   copy this already rendered EXPDIR (or the one pslot directory in it)
 #                      to --expdir instead of creating the experiment
 #   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
-#   -p PDY -c CYC      first cycle (see gfsv17_ecflow_rt_run_cycles.sh); also the start date
-#                      of the experiment that is created, so both are needed then
+#   -p PDY -c CYC      first cycle (required); also the start date of the experiment that is
+#                      created, and the first of the PDYCYC cycle families in the definition
 #   -n NCYCLES         number of cycles to run (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
 #   --ecf-server-setup run the ecflow server steps on ECF_HOST first
@@ -159,6 +159,33 @@ setup_ecf_scripts() {
   echo "Created ${ecf_dir}"
 }
 
+# Print the commands that start the cases once the setup is done
+print_start_instructions() {
+  local suite=gfs_v17_nco
+  local fam="/${suite}/primary/${pdy}${first_cycle}"
+  cat << EOF
+
+To start the case by hand (the ecflow server must be running):
+  module load ecflow
+  export ECF_HOST=${ecf_host:-<ecflow server host>}
+  export ECF_PORT=${ecf_port:-$(($(id -u) + 2000))}
+  ecflow_client --restart                       # only if the server is halted
+  ecflow_client --load=${expdir}/gfs_dev.def
+  ecflow_client --begin=${suite}             # every cycle family (PDYCYC) starts suspended
+  ecflow_client --resume=${fam}   # runs the first cycle
+Check it with: ecflow_client --query state ${fam}   (or ecflow_ui)
+Each of the ${ncycles} cycles is its own family named PDYCYC. Once a cycle is complete,
+resume the next one: ecflow_client --resume=/${suite}/primary/<next PDYCYC>
+(the next cycle is 6 hours later; the PDY moves to the next day after 18).
+
+To let a script do all of this and wait between the cycles:
+  nohup ${RUN_SCRIPT} ${run_args[*]-} \\
+    --comroot ${comroot} --dataroot ${dataroot} --outputdir ${outputdir} --expdir ${expdir} \\
+    -d ${expdir}/gfs_dev.def > ${expdir}/run_cycles.log 2>&1 &
+  tail -f ${expdir}/run_cycles.log
+EOF
+}
+
 # Create the high resolution experiment in ${expdir} unless it already exists
 create_expdir() {
   if [[ -f "${expdir}/config.base" ]]; then
@@ -270,6 +297,11 @@ while (($# > 0)); do
   esac
 done
 
+if [[ ! "${pdy}" =~ ^[0-9]{8}$ || ! "${first_cycle}" =~ ^(00|06|12|18)$ ]]; then
+  echo "ERROR: give -p PDY (YYYYMMDD) and -c CYC (00, 06, 12 or 18), the first cycle to run" >&2
+  exit 2
+fi
+
 if [[ "${server_setup}" == "YES" ]]; then
   setup_ecflow_server || exit 1
 fi
@@ -285,20 +317,15 @@ else
   create_expdir || exit 1
 fi
 setup_ecf_scripts || exit 1
-render_args=()
-if [[ -n "${first_cycle}" ]]; then
-  render_args=(--first-cycle "${first_cycle}" --ncycles "${ncycles}")
-fi
 "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
   --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
-  ${render_args[@]+"${render_args[@]}"} || exit 1
+  --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
   # The run script stages the initial conditions otherwise
-  if [[ -n "${pdy}" && -n "${first_cycle}" ]]; then
-    COMDIR=${COMDIR:-${comroot}/gfs/v17.0} "${STAGE_SCRIPT}" -p "${pdy}" -c "${first_cycle}" || exit 1
-  fi
+  COMDIR=${COMDIR:-${comroot}/gfs/v17.0} "${STAGE_SCRIPT}" -p "${pdy}" -c "${first_cycle}" || exit 1
   echo "Setup done; not running any cycle"
+  print_start_instructions
   exit 0
 fi
 
