@@ -15,10 +15,12 @@
 #      one cycle at a time, at most MAX_BACK times. If nothing is found, report that
 #      no files are available.
 #
-# Usage: gfsv17_ecflow_rt_stage_ics.sh [-p PDY -c CYC] [-k] [-h]
+# Usage: gfsv17_ecflow_rt_stage_ics.sh [-p PDY -c CYC] [-k] [-l] [-h]
 #   -p PDY  cycle date to run (YYYYMMDD), requires -c
 #   -c CYC  cycle hour to run (00, 06, 12 or 18), requires -p
 #   -k      check only, do not create links or copy syndat
+#   -l      list the cycles with complete gdas/enkfgdas data in SRC_COMROOT, newest
+#           last (the last LIST_MAX), and the cycle each one can start; nothing is staged
 #   -h      show this help
 #
 # Environment overrides:
@@ -27,6 +29,7 @@
 #   COMDIR       target COM directory (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT/gfs/v17.0)
 #   SYNDAT_SRC   operational syndat directory, always copied into COMDIR
 #   NMEM_ENS     number of ensemble members to look for (default 80)
+#   LIST_MAX     number of cycles shown by -l (default 20)
 #   MAX_BACK     number of earlier cycles to try when -p/-c are not given (default 2)
 #   NOW_UTC      time to use instead of now, for testing (any date -d string)
 
@@ -38,6 +41,7 @@ COMDIR=${COMDIR:-/lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT/gfs/v17.0}
 SYNDAT_SRC=${SYNDAT_SRC:-/lfs/h1/ops/prod/com/gfs/v16.3/syndat}
 NMEM_ENS=${NMEM_ENS:-80}
 MAX_BACK=${MAX_BACK:-2}
+LIST_MAX=${LIST_MAX:-20}
 NOW_UTC=${NOW_UTC:-now}
 
 # HHMM (UTC) when the first gfs job of each cycle is triggered, in ascending order
@@ -106,7 +110,7 @@ check_inputs() {
 
   for rel in "${required[@]}"; do
     if ! has_content "${SRC_COMROOT}/${rel}"; then
-      echo "    missing or empty: ${SRC_COMROOT}/${rel}"
+      [[ "${quiet}" == "YES" ]] || echo "    missing or empty: ${SRC_COMROOT}/${rel}"
       missing=$((missing + 1))
     fi
   done
@@ -138,14 +142,37 @@ stage_inputs() {
   fi
 }
 
+# List the cycles in SRC_COMROOT whose data is complete, and the cycle each can start
+list_cycles() {
+  local dir stamp next count=0
+  quiet=YES
+  echo "Cycles with complete data under ${SRC_COMROOT} (last ${LIST_MAX}):"
+  while read -r dir; do
+    stamp=$(basename "$(dirname "${dir}")")
+    stamp=${stamp#gdas.}$(basename "${dir}")
+    if check_inputs "${stamp:0:8}" "${stamp:8:2}"; then
+      next=$(date -u -d "${stamp:0:8} ${stamp:8:2}:00 UTC 6 hours" +%Y%m%d%H)
+      echo "  data ${stamp}  -> can start cycle ${next:0:8} ${next:8:2}  (-p ${next:0:8} -c ${next:8:2})"
+      count=$((count + 1))
+    fi
+  done < <(ls -d "${SRC_COMROOT}"/gdas.????????/?? 2> /dev/null | tail -n "${LIST_MAX}")
+  if ((count == 0)); then
+    echo "  none found"
+    return 1
+  fi
+}
+
 check_only=NO
+list_only=NO
+quiet=NO
 req_pdy=""
 req_cyc=""
-while getopts ":p:c:kh" opt; do
+while getopts ":p:c:klh" opt; do
   case "${opt}" in
     p) req_pdy=${OPTARG} ;;
     c) req_cyc=${OPTARG} ;;
     k) check_only=YES ;;
+    l) list_only=YES ;;
     h)
       usage
       exit 0
@@ -156,6 +183,11 @@ while getopts ":p:c:kh" opt; do
       ;;
   esac
 done
+
+if [[ "${list_only}" == "YES" ]]; then
+  list_cycles
+  exit $?
+fi
 
 if [[ -n "${req_pdy}" || -n "${req_cyc}" ]]; then
   if [[ ! "${req_pdy}" =~ ^[0-9]{8}$ || ! "${req_cyc}" =~ ^(00|06|12|18)$ ]]; then
