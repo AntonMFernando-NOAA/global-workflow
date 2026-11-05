@@ -5,34 +5,36 @@
 # the links in COMDIR (see the "Set-up COM DIR" section of the T2O readme).
 #
 # Cycle selection:
-#   1. If -p PDY and -c CYC are given, that cycle is tried first.
+#   1. If -p PDY and -c CYC are given, only that cycle is checked. There is no
+#      stepping back; if its previous cycle data is missing the script reports it and exits.
 #   2. Otherwise the cycle is chosen from the current UTC time using the gfs
 #      tropcy_qc start times in ecf/defs/gfs_prod.def (cycle 00 at 02:41, 06 at 08:41, 12 at 14:41, 18 at 20:41 UTC)
 #      and PDY is read from the ops date file, as in ecf/include/head.h:
 #        PDY=$(cut -c7-14 /lfs/h1/ops/prod/com/date/t${CYC}z)
-#   3. If the previous cycle data is missing, step back one cycle at a time, at most
-#      MAX_BACK times. If nothing is found, report that no files are available.
+#   3. When -p and -c are not given and the previous cycle data is missing, step back
+#      one cycle at a time, at most MAX_BACK times. If nothing is found, report that
+#      no files are available.
 #
 # Usage: gfsv17_ecflow_rt_stage_ics.sh [-p PDY -c CYC] [-k] [-h]
-#   -p PDY  cycle date to run first (YYYYMMDD), requires -c
-#   -c CYC  cycle hour to run first (00, 06, 12 or 18), requires -p
+#   -p PDY  cycle date to run (YYYYMMDD), requires -c
+#   -c CYC  cycle hour to run (00, 06, 12 or 18), requires -p
 #   -k      check only, do not create links or copy syndat
 #   -h      show this help
 #
 # Environment overrides:
 #   DATE_DIR     ops date file directory (default /lfs/h1/ops/prod/com/date)
 #   SRC_COMROOT  realtime comroot holding gdas.PDY/CC and enkfgdas.PDY/CC
-#   COMDIR       target COM directory (default /lfs/h2/emc/ptmp/${USER}/gfs/ops/para/com/gfs/v17.0)
-#   SYNDAT_SRC   operational syndat directory to copy if COMDIR has none
+#   COMDIR       target COM directory (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT/gfs/v17.0)
+#   SYNDAT_SRC   operational syndat directory, always copied into COMDIR
 #   NMEM_ENS     number of ensemble members to look for (default 80)
-#   MAX_BACK     number of earlier cycles to try (default 2)
+#   MAX_BACK     number of earlier cycles to try when -p/-c are not given (default 2)
 #   NOW_UTC      time to use instead of now, for testing (any date -d string)
 
 set -u
 
 DATE_DIR=${DATE_DIR:-/lfs/h1/ops/prod/com/date}
 SRC_COMROOT=${SRC_COMROOT:-/lfs/h2/emc/gfstemp/emc.global/comroot/retrov17_01_realtime}
-COMDIR=${COMDIR:-/lfs/h2/emc/ptmp/${USER}/gfs/ops/para/com/gfs/v17.0}
+COMDIR=${COMDIR:-/lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT/gfs/v17.0}
 SYNDAT_SRC=${SYNDAT_SRC:-/lfs/h1/ops/prod/com/gfs/v16.3/syndat}
 NMEM_ENS=${NMEM_ENS:-80}
 MAX_BACK=${MAX_BACK:-2}
@@ -128,9 +130,7 @@ stage_inputs() {
   mkdir -p "${COMDIR}"
   link_cycle gdas "${ppdy}" "${pcyc}"
   link_cycle enkfgdas "${ppdy}" "${pcyc}"
-  if [[ -d "${COMDIR}/syndat" ]]; then
-    echo "  syndat already present in ${COMDIR}"
-  elif [[ -d "${SYNDAT_SRC}" ]]; then
+  if [[ -d "${SYNDAT_SRC}" ]]; then
     cp -rf "${SYNDAT_SRC}" "${COMDIR}/"
     echo "  copied ${SYNDAT_SRC} to ${COMDIR}"
   else
@@ -164,6 +164,7 @@ if [[ -n "${req_pdy}" || -n "${req_cyc}" ]]; then
   fi
   tpdy=${req_pdy}
   tcyc=${req_cyc}
+  MAX_BACK=0
   echo "Using requested cycle ${tpdy}${tcyc}"
 else
   pick_cycle_from_clock
@@ -188,7 +189,11 @@ for ((attempt = 0; attempt <= MAX_BACK; attempt++)); do
 done
 
 if [[ "${found}" != "YES" ]]; then
-  echo "No files: initial conditions are missing for the last $((MAX_BACK + 1)) cycles under ${SRC_COMROOT}"
+  if ((MAX_BACK == 0)); then
+    echo "No files: initial conditions are missing for ${ppdy}${pcyc} under ${SRC_COMROOT}"
+  else
+    echo "No files: initial conditions are missing for the last $((MAX_BACK + 1)) cycles under ${SRC_COMROOT}"
+  fi
   exit 1
 fi
 
@@ -203,6 +208,5 @@ echo "PDY=${tpdy}"
 echo "CYC=${tcyc}"
 echo "PREV_PDY=${ppdy}"
 echo "PREV_CYC=${pcyc}"
-echo "To start the cycle: ecflow_client --force=complete recursive /gfs_v17_nco/primary/${pcyc}"
-echo "If this is not the current ops cycle, add edit PDY '${tpdy}' to the suite (head.h uses it)"
+echo "To run the cycles: gfsv17_ecflow_rt_run_cycles.sh -p ${tpdy} -c ${tcyc} -n <number of cycles>"
 exit 0

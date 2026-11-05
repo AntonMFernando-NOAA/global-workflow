@@ -23,7 +23,12 @@ if [ -d /apps/ops/prod ]; then # On WCOSS2
 fi
 
 module load prod_util
-export PDY=$(cut -c7-14 /lfs/h1/ops/prod/com/date/t%CYC%z)
+# An edited PDY in the suite definition takes precedence over the ops date file
+if [ -n "%PDY:%" ]; then
+  export PDY=%PDY:%
+else
+  export PDY=$(cut -c7-14 /lfs/h1/ops/prod/com/date/t%CYC%z)
+fi
 
 if [ -d /apps/ops/prod ]; then # On WCOSS2
   set +x
@@ -45,7 +50,6 @@ export MACHINE_SITE=%MACHINE_SITE%
 export RUN_ENVIR=${RUN_ENVIR:-nco}
 export SENDECF=${SENDECF:-YES}
 export SENDCOM=${SENDCOM:-YES}
-if [ -n "%PDY:%" ]; then export PDY=${PDY:-%PDY:%}; fi
 if [ -n "%PARATEST:%" ]; then export PARATEST=${PARATEST:-%PARATEST:%}; fi
 if [ -n "%COMPATH:%" ]; then export COMPATH=${COMPATH:-%COMPATH:%}; fi
 if [ -n "%MAILTO:%" ]; then export MAILTO=${MAILTO:-%MAILTO:%}; fi
