@@ -25,7 +25,8 @@
 #                   DIR/gfs/v17.0 unless COMDIR is already set
 #   --dataroot DIR  set DATAROOT on /suite/primary
 #   --outputdir DIR set OUTPUTDIR on /suite/primary
-#   --expdir DIR    set EXPDIR on /suite/primary
+#   --expdir DIR    set EXPDIR on /suite/primary; the suite reads its ecf scripts and
+#                   include files from DIR/ecf
 #   -h              show this help
 # Variables not given keep the values written in the suite definition.
 #

@@ -9,13 +9,19 @@
 #   3. Copy an already rendered EXPDIR (--expdir-src) to --expdir, outside the
 #      repository, so the config files can be edited at any time. An existing
 #      --expdir is never overwritten, so your edits are kept.
-#   4. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
+#   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
+#      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
+#      outside the repository. gfs_dev.def reads ECF_FILES and ECF_INCLUDE from
+#      %EXPDIR%/ecf. An existing <expdir>/ecf is never overwritten; remove it to
+#      regenerate.
+#   5. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh and then the requested cycles.
 #
-# Usage: gfsv17_ecflow_rt_setup_expt.sh [--comroot DIR] [--dataroot DIR] [--outputdir DIR]
-#          [--expdir DIR] [--expdir-src DIR] [-p PDY -c CYC] [-n NCYCLES] [--setup-only]
-#          [--ecf-server-setup] [--ecf-role] [--ecf-host HOST] [--ecf-port PORT]
-#          [--ecf-users USER[,USER...]] [-h]
+# Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
+#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [-p PDY -c CYC] [-n NCYCLES]
+#          [--setup-only] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
+#          [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
+#   --build-link       first run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
 #   --dataroot DIR     DATAROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/RUNDIR)
 #   --outputdir DIR    OUTPUTDIR (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/OUTPUT)
@@ -38,6 +44,7 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_run_cycles.sh"
+HOMEgfs=$(cd "${SCRIPT_DIR}/../.." && pwd)
 ECF_ROOT_ROLE=${ECF_ROOT_ROLE:-/lfs/h2/emc/global/noscrub/emc.global/ecflow}
 RUNTESTS="/lfs/h2/emc/stmp/${USER}/RUNTESTS"
 
@@ -48,6 +55,7 @@ expdir="${RUNTESTS}/EXPDIR_ecflow"
 expdir_src="${RUNTESTS}/EXPDIR"
 run_args=()
 setup_only=NO
+build_link=NO
 server_setup=NO
 ecf_role=NO
 ecf_host=${ECF_HOST:-}
@@ -98,6 +106,34 @@ fi
 EOF
 }
 
+# Build all executables and link them
+build_and_link() {
+  (
+    cd "${HOMEgfs}/sorc" || exit 1
+    ./build_all.sh gfs gdas gsi || exit 1
+    ./link_workflow.sh || exit 1
+  )
+}
+
+# Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there
+setup_ecf_scripts() {
+  local ecf_dir=${expdir}/ecf
+  if [[ -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
+    echo "${ecf_dir} already exists; not overwritten"
+    return 0
+  fi
+  rm -rf "${ecf_dir}"
+  mkdir -p "${ecf_dir}" || return 1
+  cp -a "${HOMEgfs}/dev/ecf/gfs/scripts" "${HOMEgfs}/dev/ecf/gfs/include" "${ecf_dir}/" || return 1
+  if ! (cd "${ecf_dir}" && bash "${HOMEgfs}/dev/ecf/gfs/setup_ecf_links.sh") > "${ecf_dir}/setup_ecf_links.log" 2>&1; then
+    echo "ERROR: setup_ecf_links.sh failed; see ${ecf_dir}/setup_ecf_links.log" >&2
+    tail -n 20 "${ecf_dir}/setup_ecf_links.log" >&2
+    rm -rf "${ecf_dir}"
+    return 1
+  fi
+  echo "Created ${ecf_dir}"
+}
+
 # Copy the rendered EXPDIR unless the destination already has one
 copy_expdir() {
   local src=${expdir_src} sub
@@ -127,6 +163,10 @@ while (($# > 0)); do
   case "$1" in
     --setup-only)
       setup_only=YES
+      shift
+      ;;
+    --build-link)
+      build_link=YES
       shift
       ;;
     --ecf-server-setup)
@@ -170,8 +210,13 @@ if [[ "${server_setup}" == "YES" ]]; then
   setup_ecflow_server || exit 1
 fi
 
+if [[ "${build_link}" == "YES" ]]; then
+  build_and_link || exit 1
+fi
+
 mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || exit 1
 copy_expdir || exit 1
+setup_ecf_scripts || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
   echo "Setup done; not running any cycle"

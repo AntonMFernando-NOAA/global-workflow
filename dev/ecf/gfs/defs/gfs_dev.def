@@ -10,7 +10,7 @@ suite gfs_v17_nco
     edit ENVIR 'para'
     edit QUEUE 'dev'
     edit QUEUE_ARCH 'dev_transfer'
-    edit ECF_INCLUDE '%PACKAGEHOME%/dev/ecf/gfs/include'
+    edit ECF_INCLUDE '%EXPDIR%/ecf/include'
     edit OUTPUTDIR '/lfs/h2/emc/stmp/anton.fernando/RUNTESTS/OUTPUT'
     edit DATAROOT '/lfs/h2/emc/stmp/anton.fernando/RUNTESTS/RUNDIR'
     edit COMROOT '/lfs/h2/emc/stmp/anton.fernando/RUNTESTS/COMROOT'
@@ -19,7 +19,7 @@ suite gfs_v17_nco
       defstatus suspended
       edit PDY ''
       edit CYC '00'
-      edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+      edit ECF_FILES '%EXPDIR%/ecf/scripts'
       family gfs
         edit RUN 'gfs'
         family prep
@@ -5595,7 +5595,7 @@ suite gfs_v17_nco
       family enkfgdas
         edit RUN 'enkfgdas'
         edit WGF 'enkf'
-        edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+        edit ECF_FILES '%EXPDIR%/ecf/scripts'
         family analysis
           family create
             task jenkfgdas_atmos_ens_observer
@@ -5917,7 +5917,7 @@ suite gfs_v17_nco
       defstatus suspended
       edit PDY ''
       edit CYC '06'
-      edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+      edit ECF_FILES '%EXPDIR%/ecf/scripts'
       family gfs
         edit RUN 'gfs'
         family prep
@@ -11492,7 +11492,7 @@ suite gfs_v17_nco
       family enkfgdas
         edit RUN 'enkfgdas'
         edit WGF 'enkf'
-        edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+        edit ECF_FILES '%EXPDIR%/ecf/scripts'
         family analysis
           family create
             task jenkfgdas_atmos_ens_observer
@@ -11814,7 +11814,7 @@ suite gfs_v17_nco
       defstatus suspended
       edit PDY ''
       edit CYC '12'
-      edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+      edit ECF_FILES '%EXPDIR%/ecf/scripts'
       family gfs
         edit RUN 'gfs'
         family prep
@@ -17389,7 +17389,7 @@ suite gfs_v17_nco
       family enkfgdas
         edit RUN 'enkfgdas'
         edit WGF 'enkf'
-        edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+        edit ECF_FILES '%EXPDIR%/ecf/scripts'
         family analysis
           family create
             task jenkfgdas_atmos_ens_observer
@@ -17711,7 +17711,7 @@ suite gfs_v17_nco
       defstatus suspended
       edit PDY ''
       edit CYC '18'
-      edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+      edit ECF_FILES '%EXPDIR%/ecf/scripts'
       family gfs
         edit RUN 'gfs'
         family prep
@@ -23287,7 +23287,7 @@ suite gfs_v17_nco
       family enkfgdas
         edit RUN 'enkfgdas'
         edit WGF 'enkf'
-        edit ECF_FILES '%PACKAGEHOME%/dev/ecf/gfs/scripts'
+        edit ECF_FILES '%EXPDIR%/ecf/scripts'
         family analysis
           family create
             task jenkfgdas_atmos_ens_observer
