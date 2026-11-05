@@ -20,7 +20,8 @@
 #   -p PDY          first cycle date (YYYYMMDD), requires -c
 #   -c CYC          first cycle hour (00, 06, 12 or 18), requires -p
 #   -n NCYCLES      number of cycles to run (default 1)
-#   -d DEF          suite definition to load (default ecf/gfs/defs/gfs_dev.def)
+#   -d DEF          suite definition to load (default EXPDIR/gfs_dev.def, which the setup
+#                   script renders; needs --expdir when -d is not given)
 #   --comroot DIR   set COMROOT on /suite/primary; the stage script COMDIR becomes
 #                   DIR/gfs/v17.0 unless COMDIR is already set
 #   --dataroot DIR  set DATAROOT on /suite/primary
@@ -42,7 +43,7 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 STAGE_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_stage_ics.sh"
-DEF_FILE="${SCRIPT_DIR}/../ecf/gfs/defs/gfs_dev.def"
+DEF_FILE=""
 SUITE=${SUITE:-gfs_v17_nco}
 POLL_SECONDS=${POLL_SECONDS:-60}
 ECFLOW_CLIENT=${ECFLOW_CLIENT:-ecflow_client}
@@ -121,6 +122,13 @@ while (($# > 0)); do
   esac
 done
 
+if [[ -z "${DEF_FILE}" && -n "${expdir}" ]]; then
+  DEF_FILE="${expdir}/gfs_dev.def"
+fi
+if [[ -z "${DEF_FILE}" ]]; then
+  echo "ERROR: give -d DEF or --expdir DIR (DIR/gfs_dev.def is used)" >&2
+  exit 2
+fi
 if [[ ! "${ncycles}" =~ ^[1-9][0-9]*$ ]]; then
   echo "ERROR: -n needs a positive integer" >&2
   exit 2
@@ -172,11 +180,24 @@ for entry in "COMROOT:${comroot}" "DATAROOT:${dataroot}" "OUTPUTDIR:${outputdir}
   fi
 done
 
+family_exists() {
+  ecf --query state "/${SUITE}/primary/$1" > /dev/null 2>&1
+}
+
 # Keep every cycle from running until its turn
+if ! family_exists "${cyc}"; then
+  echo "ERROR: ${DEF_FILE} has no family ${cyc}; render it again with -c ${cyc} (setup script)" >&2
+  exit 1
+fi
 for family_cyc in "${CYCLES[@]}"; do
-  ecf --suspend="/${SUITE}/primary/${family_cyc}" || exit 1
+  if family_exists "${family_cyc}"; then
+    ecf --suspend="/${SUITE}/primary/${family_cyc}" || exit 1
+  fi
 done
-ecf --force=complete recursive "/${SUITE}/primary/${prev_cyc}" || exit 1
+# The definition has no family for the cycle before the first one if it only holds the cycles to run
+if family_exists "${prev_cyc}"; then
+  ecf --force=complete recursive "/${SUITE}/primary/${prev_cyc}" || exit 1
+fi
 
 for ((n = 1; n <= ncycles; n++)); do
   family="/${SUITE}/primary/${cyc}"

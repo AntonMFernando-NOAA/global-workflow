@@ -11,10 +11,15 @@
 #      --expdir is never overwritten, so your edits are kept.
 #   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
-#      outside the repository. gfs_dev.def reads ECF_FILES and ECF_INCLUDE from
+#      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
 #      %EXPDIR%/ecf. An existing <expdir>/ecf is never overwritten; remove it to
 #      regenerate.
-#   5. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
+#   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
+#      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
+#      above. With -c, the definition only holds the cycle families that -n cycles
+#      from -c use, in run order (without -c all four families, from 00). It is
+#      rendered again on every run.
+#   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh and then the requested cycles.
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
@@ -54,6 +59,8 @@ outputdir="${RUNTESTS}/OUTPUT"
 expdir="${RUNTESTS}/EXPDIR_ecflow"
 expdir_src="${RUNTESTS}/EXPDIR"
 run_args=()
+first_cycle=""
+ncycles=1
 setup_only=NO
 build_link=NO
 server_setup=NO
@@ -195,6 +202,14 @@ while (($# > 0)); do
         --ecf-host) ecf_host=$2 ;;
         --ecf-port) ecf_port=$2 ;;
         --ecf-users) ecf_users=$2 ;;
+        -c)
+          first_cycle=$2
+          run_args+=("$1" "$2")
+          ;;
+        -n)
+          ncycles=$2
+          run_args+=("$1" "$2")
+          ;;
         *) run_args+=("$1" "$2") ;;
       esac
       shift 2
@@ -217,6 +232,13 @@ fi
 mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || exit 1
 copy_expdir || exit 1
 setup_ecf_scripts || exit 1
+render_args=()
+if [[ -n "${first_cycle}" ]]; then
+  render_args=(--first-cycle "${first_cycle}" --ncycles "${ncycles}")
+fi
+"${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
+  --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
+  ${render_args[@]+"${render_args[@]}"} || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
   echo "Setup done; not running any cycle"
@@ -231,4 +253,5 @@ if [[ -n "${ecf_host}" ]]; then
 fi
 export ECF_PORT=${ecf_port:-$(($(id -u) + 2000))}
 exec "${RUN_SCRIPT}" ${run_args[@]+"${run_args[@]}"} \
-  --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}"
+  --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
+  -d "${expdir}/gfs_dev.def"
