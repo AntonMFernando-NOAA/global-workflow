@@ -6,9 +6,12 @@
 #   1. With --ecf-server-setup: (re)start the ecflow server on ECF_HOST over ssh
 #      (first time use, or when the role account server needs a restart).
 #   2. Create COMROOT, DATAROOT and OUTPUTDIR.
-#   3. Copy an already rendered EXPDIR (--expdir-src) to --expdir, outside the
-#      repository, so the config files can be edited at any time. An existing
-#      --expdir is never overwritten, so your edits are kept.
+#   3. Create the high resolution experiment (C1152 atmosphere, 0.25 degree ocean,
+#      80 members, the retrov17_realtime.yaml configuration) in --expdir with
+#      dev/workflow/setup_expt.py, starting at the first cycle (-p, -c). COMROOT
+#      and EXPDIR in its config.base are the ones given here. With --expdir-src a
+#      rendered EXPDIR is copied to --expdir instead. An existing --expdir is never
+#      overwritten, so your edits are kept.
 #   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
@@ -20,19 +23,25 @@
 #      from -c use, in run order (without -c all four families, from 00). It is
 #      rendered again on every run.
 #   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
-#      gfsv17_ecflow_rt_stage_ics.sh and then the requested cycles.
+#      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
+#      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
+#      stage script is run here and no cycle is started.
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
-#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [-p PDY -c CYC] [-n NCYCLES]
+#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [-p PDY -c CYC] [-n NCYCLES]
 #          [--setup-only] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
 #          [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
 #   --build-link       first run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
 #   --dataroot DIR     DATAROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/RUNDIR)
 #   --outputdir DIR    OUTPUTDIR (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/OUTPUT)
-#   --expdir DIR       new editable EXPDIR (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/EXPDIR_ecflow)
-#   --expdir-src DIR   rendered EXPDIR to copy (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/EXPDIR)
-#   -p PDY -c CYC      first cycle (see gfsv17_ecflow_rt_run_cycles.sh)
+#   --expdir DIR       experiment directory to create; its name is the pslot
+#                      (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/EXPDIR/rt17_ecflow_highres)
+#   --expdir-src DIR   copy this already rendered EXPDIR (or the one pslot directory in it)
+#                      to --expdir instead of creating the experiment
+#   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
+#   -p PDY -c CYC      first cycle (see gfsv17_ecflow_rt_run_cycles.sh); also the start date
+#                      of the experiment that is created, so both are needed then
 #   -n NCYCLES         number of cycles to run (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
 #   --ecf-server-setup run the ecflow server steps on ECF_HOST first
@@ -42,22 +51,31 @@
 #   --ecf-users LIST   users to add to the server access list after the restart
 #   -h                 show this help
 #
+# Run it after loading the workflow environment (source dev/ush/gw_setup.sh) so that
+# setup_expt.py finds wxflow.
+#
 # Environment overrides:
 #   ECF_ROOT_ROLE  role account ecflow root (default /lfs/h2/emc/global/noscrub/emc.global/ecflow)
+#   EDATE          end date of the created experiment (default 2027011600)
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_run_cycles.sh"
+STAGE_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_stage_ics.sh"
 HOMEgfs=$(cd "${SCRIPT_DIR}/../.." && pwd)
 ECF_ROOT_ROLE=${ECF_ROOT_ROLE:-/lfs/h2/emc/global/noscrub/emc.global/ecflow}
+EDATE=${EDATE:-2027011600}
+ICSDIR_DEFAULT=/lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime
 RUNTESTS="/lfs/h2/emc/stmp/${USER}/RUNTESTS"
 
 comroot="${RUNTESTS}/COMROOT"
 dataroot="${RUNTESTS}/RUNDIR"
 outputdir="${RUNTESTS}/OUTPUT"
-expdir="${RUNTESTS}/EXPDIR_ecflow"
-expdir_src="${RUNTESTS}/EXPDIR"
+expdir="${RUNTESTS}/EXPDIR/rt17_ecflow_highres"
+expdir_src=""
+icsdir="${ICSDIR_DEFAULT}"
+pdy=""
 run_args=()
 first_cycle=""
 ncycles=1
@@ -141,6 +159,32 @@ setup_ecf_scripts() {
   echo "Created ${ecf_dir}"
 }
 
+# Create the high resolution experiment in ${expdir} unless it already exists
+create_expdir() {
+  if [[ -f "${expdir}/config.base" ]]; then
+    echo "EXPDIR ${expdir} already exists; not overwritten"
+    return 0
+  fi
+  if [[ -z "${pdy}" || -z "${first_cycle}" ]]; then
+    echo "ERROR: give -p PDY -c CYC (the experiment start) or --expdir-src DIR" >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "${expdir}")" || return 1
+  PYTHONPATH="${HOMEgfs}/sorc/wxflow/src${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${HOMEgfs}/dev/workflow/setup_expt.py" gfs cycled \
+    --pslot "$(basename "${expdir}")" --app S2SW \
+    --resdetatmos 1152 --resensatmos 384 --resdetocean 0.25 --nens 80 \
+    --interval 6 --start warm \
+    --comroot "${comroot}" --expdir "$(dirname "${expdir}")" \
+    --idate "${pdy}${first_cycle}" --edate "${EDATE}" --icsdir "${icsdir}" \
+    --yaml "${HOMEgfs}/dev/ci/cases/gfsv17/s2sw_realtime.yaml" || return 1
+  if [[ ! -f "${expdir}/config.base" ]]; then
+    echo "ERROR: setup_expt.py did not create ${expdir}/config.base" >&2
+    return 1
+  fi
+  echo "Created ${expdir}"
+}
+
 # Copy the rendered EXPDIR unless the destination already has one
 copy_expdir() {
   local src=${expdir_src} sub
@@ -188,7 +232,7 @@ while (($# > 0)); do
       usage
       exit 0
       ;;
-    --comroot | --dataroot | --outputdir | --expdir | --expdir-src | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
+    --comroot | --dataroot | --outputdir | --expdir | --expdir-src | --icsdir | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
       if (($# < 2)); then
         echo "ERROR: $1 needs a value" >&2
         exit 2
@@ -199,6 +243,11 @@ while (($# > 0)); do
         --outputdir) outputdir=$2 ;;
         --expdir) expdir=$2 ;;
         --expdir-src) expdir_src=$2 ;;
+        --icsdir) icsdir=$2 ;;
+        -p)
+          pdy=$2
+          run_args+=("$1" "$2")
+          ;;
         --ecf-host) ecf_host=$2 ;;
         --ecf-port) ecf_port=$2 ;;
         --ecf-users) ecf_users=$2 ;;
@@ -230,7 +279,11 @@ if [[ "${build_link}" == "YES" ]]; then
 fi
 
 mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || exit 1
-copy_expdir || exit 1
+if [[ -n "${expdir_src}" ]]; then
+  copy_expdir || exit 1
+else
+  create_expdir || exit 1
+fi
 setup_ecf_scripts || exit 1
 render_args=()
 if [[ -n "${first_cycle}" ]]; then
@@ -241,6 +294,10 @@ fi
   ${render_args[@]+"${render_args[@]}"} || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
+  # The run script stages the initial conditions otherwise
+  if [[ -n "${pdy}" && -n "${first_cycle}" ]]; then
+    COMDIR=${COMDIR:-${comroot}/gfs/v17.0} "${STAGE_SCRIPT}" -p "${pdy}" -c "${first_cycle}" || exit 1
+  fi
   echo "Setup done; not running any cycle"
   exit 0
 fi
