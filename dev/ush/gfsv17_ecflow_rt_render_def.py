@@ -6,15 +6,18 @@ The rendered definition differs from gfs_prod.def as follows:
 * PACKAGEHOME, ENVIR, QUEUE, OUTPUTDIR and EXPDIR are set for the user, and
   ECF_INCLUDE, DATAROOT and COMROOT are added.
 * ECF_INCLUDE and every ECF_FILES point to <EXPDIR>/ecf.
-* All ``trigger :TIME`` lines are removed, so no job waits for the clock.
-* The cycle_end tasks are removed. They cycle the suite by themselves (setpdy.sh,
-  requeue and resume), which the run script does instead.
-* There is one cycle family per cycle of the run, named PDYCYC and in run order:
-  with --first-pdy 20260105 --first-cycle 12 --ncycles 3 the suite has the families
-  2026010512, 2026010518 and 2026010600, each with its own PDY and CYC. Triggers
-  that wait on the previous cycle point to the previous PDYCYC family. Triggers
-  that wait on the cycle before the first one are removed.
-* Every cycle family starts suspended; the run script releases them one by one.
+* The suite keeps the four cycle families 00, 06, 12 and 18, and the cycle_end
+  task of each one. cycle_end resets its family for the next day and moves its PDY
+  forward, so the suite cycles by itself as in production.
+* Every cycle family has an edited PDY. The cycle families of the run get the PDY
+  of their first run: with --first-pdy 20260105 --first-cycle 12 the families 12
+  and 18 get 20260105 and 00 gets 20260106. The family of the cycle before the
+  first one (06) gets 20260105; it is to be forced complete when the suite starts.
+* A task that waited only on the clock (``trigger :TIME ...``) waits for the
+  cycle_end task of its own family to be complete instead, so a cycle prepares
+  its input after cycle_end has reset it and not at once when the suite begins.
+* The first cycle family starts suspended, so that the start steps can be done
+  before it runs.
 """
 
 import re
@@ -26,17 +29,15 @@ from pathlib import Path
 CYCLE_HOURS = ('00', '06', '12', '18')
 DEFAULT_SRC = Path(__file__).resolve().parent.parent / 'ecf' / 'gfs' / 'defs' / 'gfs_prod.def'
 
+SUITE = re.compile(r"^suite\s+(\S+)\s*$")
 CYCLE_FAMILY = re.compile(r"^    family (00|06|12|18)\s*$")
 CYCLE_FAMILY_END = re.compile(r"^    endfamily\b")
-TIME_TRIGGER = re.compile(r"^\s*trigger\s+:TIME\b")
-CYCLE_END_TASK = re.compile(r"^(\s*)task cycle_end\s*$")
+TIME_TRIGGER = re.compile(r"^(\s*)trigger\s+:TIME\b")
 ECF_FILES = re.compile(r"^(\s*edit ECF_FILES )'[^']*'\s*$")
-TRIGGER = re.compile(r"^(\s*)trigger\s+([^#]*?)\s*(#.*)?$")
-CYCLE_REF = re.compile(r"(?:\.\./)+(00|06|12|18)/")
 
 
-def run_cycles(first_pdy, first_cycle, ncycles):
-    """Return the cycles of the run, in run order.
+def cycle_pdys(first_pdy, first_cycle):
+    """Return the PDY that each cycle family has when the suite is loaded.
 
     Parameters
     ----------
@@ -44,112 +45,64 @@ def run_cycles(first_pdy, first_cycle, ncycles):
         Date of the first cycle (YYYYMMDD).
     first_cycle : str
         Hour of the first cycle: 00, 06, 12 or 18.
-    ncycles : int
-        Number of cycles to run.
 
     Returns
     -------
-    list of tuple of (str, str, str)
-        PDY, cycle hour and family name (PDYCYC) of each cycle, for example
-        [('20260105', '12', '2026010512'), ('20260105', '18', '2026010518')] for
-        ('20260105', '12', 2).
+    dict of str to str
+        PDY of each cycle hour. The three cycles after the first one, and the first
+        one, have the PDY of their first run; the cycle before the first one has the
+        PDY it had before the run starts.
     """
     start = datetime.strptime(first_pdy + first_cycle, '%Y%m%d%H')
-    cycles = []
-    for i in range(ncycles):
+    pdys = {}
+    for i in range(-1, 3):
         stamp = (start + timedelta(hours=6 * i)).strftime('%Y%m%d%H')
-        cycles.append((stamp[:8], stamp[8:], stamp))
-    return cycles
+        pdys[stamp[8:]] = stamp[:8]
+    return pdys
 
 
-def drop_missing_cycle_waits(line, available):
-    """Remove the trigger clauses that wait on a cycle family that is not kept.
-
-    Parameters
-    ----------
-    line : str
-        One line of the definition.
-    available : list of str
-        Cycle hours that a trigger can wait on.
-
-    Returns
-    -------
-    str or None
-        The line, the line without the removed clauses, or None if nothing
-        is left of a trigger.
-
-    Raises
-    ------
-    ValueError
-        If a clause that cannot be split on "and" waits on a missing cycle.
-    """
-    match = TRIGGER.match(line)
-    if not match or not any(ref not in available for ref in CYCLE_REF.findall(match.group(2))):
-        return line
-    kept = []
-    for clause in re.split(r"\s+and\s+", match.group(2)):
-        refs = CYCLE_REF.findall(clause)
-        if all(ref in available for ref in refs):
-            kept.append(clause)
-        elif re.search(r"\sor\s|[()]", clause):
-            raise ValueError(f"cannot remove a cycle wait from: {line.strip()}")
-    if not kept:
-        return None
-    return f"{match.group(1)}trigger {' and '.join(kept)}"
-
-
-def render_cycle(block, name, pdy, previous):
+def render_cycle(block, hour, pdy, suite, suspended):
     """Render the lines of one cycle family block.
 
     Parameters
     ----------
     block : list of str
         Lines from "family NN" to its "endfamily".
-    name : str
-        Name of the family in the rendered definition (PDYCYC).
+    hour : str
+        Cycle hour of the family.
     pdy : str
-        Date of the cycle, set as PDY on the family.
-    previous : tuple of (str, str) or None
-        Hour and family name of the cycle before this one, or None for the first cycle.
+        Date set as PDY on the family.
+    suite : str
+        Name of the suite, used in the path of the cycle_end task.
+    suspended : bool
+        Whether the family starts suspended.
 
     Returns
     -------
     tuple of (list of str, int)
         The rendered lines and the number of ECF_FILES edits found.
     """
-    available = [previous[0]] if previous else []
     out = []
     n_ecf_files = 0
-    skip_below = None
     for line in block:
-        if skip_below is not None:
-            if line.strip() == '' or len(line) - len(line.lstrip()) > skip_below:
-                continue
-            skip_below = None
-        match = CYCLE_END_TASK.match(line)
+        match = TIME_TRIGGER.match(line)
         if match:
-            skip_below = len(match.group(1))
-            continue
-        if TIME_TRIGGER.match(line):
+            out.append(f"{match.group(1)}trigger /{suite}/primary/{hour}/cycle_end == complete")
             continue
         match = ECF_FILES.match(line)
         if match:
             out.append(f"{match.group(1)}'%EXPDIR%/ecf/scripts'")
             n_ecf_files += 1
             continue
-        line = drop_missing_cycle_waits(line, available)
-        if line is None:
-            continue
-        if TRIGGER.match(line) and previous:
-            line = CYCLE_REF.sub(lambda ref: ref.group(0).replace(f"/{previous[0]}/", f"/{previous[1]}/"), line)
+        out.append(line)
         if CYCLE_FAMILY.match(line):
-            out.extend([f"    family {name}", "      defstatus suspended", f"      edit PDY '{pdy}'"])
-        else:
-            out.append(line)
+            if suspended:
+                out.append("      defstatus suspended")
+            out.append(f"      edit PDY '{pdy}'")
     return out, n_ecf_files
 
 
-def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle, ncycles):
+def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle):
     """Apply the development changes to the lines of gfs_prod.def.
 
     Parameters
@@ -171,8 +124,6 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         Date of the first cycle to run (YYYYMMDD).
     first_cycle : str
         Hour of the first cycle to run.
-    ncycles : int
-        Number of cycles to run.
 
     Returns
     -------
@@ -184,7 +135,7 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     ValueError
         If the source does not have the expected structure.
     """
-    cycles = run_cycles(first_pdy, first_cycle, ncycles)
+    pdys = cycle_pdys(first_pdy, first_cycle)
     header = {
         'PACKAGEHOME': [f"    edit PACKAGEHOME '{packagehome}'"],
         'ENVIR': ["    edit ENVIR 'para'"],
@@ -196,46 +147,42 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         'EXPDIR': [f"    edit EXPDIR '{expdir}'"],
     }
 
-    # Split the source into the lines before, the cycle families, and the lines after
-    head, tail, blocks, current = [], [], {}, None
+    # Walk the source and render each line, keeping the cycle families in their place
+    out, seen_header, suite = [], set(), None
+    n_ecf_files, n_families, current = 0, 0, None
     for line in lines:
+        match = SUITE.match(line)
+        if match:
+            suite = match.group(1)
         match = CYCLE_FAMILY.match(line)
         if match:
-            current = blocks.setdefault(match.group(1), [])
-            tail = []
+            current = (match.group(1), [])
+            n_families += 1
         if current is not None:
-            current.append(line)
+            current[1].append(line)
             if CYCLE_FAMILY_END.match(line):
+                hour, block = current
+                rendered, count = render_cycle(block, hour, pdys[hour], suite, hour == first_cycle)
+                out.extend(rendered)
+                n_ecf_files += count
                 current = None
-        elif blocks:
-            tail.append(line)
-        else:
-            head.append(line)
-    if sorted(blocks) != sorted(CYCLE_HOURS):
-        raise ValueError(f"expected the cycle families {CYCLE_HOURS}, found {sorted(blocks)}")
-
-    out, seen_header = [], set()
-    for line in head:
+            continue
         match = re.match(r"^    edit (\w+) ", line)
         if match and match.group(1) in header:
             seen_header.add(match.group(1))
             out.extend(header[match.group(1)])
         else:
             out.append(line)
+
+    if n_families != len(CYCLE_HOURS):
+        raise ValueError(f"expected the cycle families {CYCLE_HOURS}, found {n_families} families")
     missing = set(header) - seen_header
     if missing:
         raise ValueError(f"header edits not found in the source: {sorted(missing)}")
-
-    n_ecf_files = 0
-    previous = None
-    for pdy, hour, name in cycles:
-        rendered, count = render_cycle(blocks[hour], name, pdy, previous)
-        out.extend(rendered)
-        n_ecf_files += count
-        previous = (hour, name)
-    if n_ecf_files != 2 * len(cycles):
-        raise ValueError(f"expected {2 * len(cycles)} ECF_FILES edits, found {n_ecf_files}")
-    out.extend(tail)
+    if suite is None:
+        raise ValueError("suite name not found in the source")
+    if n_ecf_files != 2 * len(CYCLE_HOURS):
+        raise ValueError(f"expected {2 * len(CYCLE_HOURS)} ECF_FILES edits, found {n_ecf_files}")
     if any(re.match(r"^[^#]*:TIME\b", line) for line in out):
         raise ValueError("a :TIME expression is left that is not a plain trigger line")
     return out
@@ -254,16 +201,12 @@ def input_args():
     parser.add_argument('--expdir', required=True, help='EXPDIR')
     parser.add_argument('--first-pdy', required=True, help='date (YYYYMMDD) of the first cycle')
     parser.add_argument('--first-cycle', choices=CYCLE_HOURS, required=True, help='hour of the first cycle')
-    parser.add_argument('--ncycles', type=int, default=1, help='number of cycles to run')
     return parser.parse_args()
 
 
 def main():
     """Render the definition and write it to --out."""
     args = input_args()
-    if args.ncycles < 1:
-        print("ERROR: --ncycles must be at least 1", file=sys.stderr)
-        return 2
     try:
         datetime.strptime(args.first_pdy, '%Y%m%d')
     except ValueError:
@@ -272,14 +215,13 @@ def main():
     lines = args.src.read_text().splitlines()
     try:
         out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.expdir,
-                     args.first_pdy, args.first_cycle, args.ncycles)
+                     args.first_pdy, args.first_cycle)
     except ValueError as err:
         print(f"ERROR: cannot render {args.src}: {err}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text('\n'.join(out) + '\n')
-    names = ' '.join(name for _, _, name in run_cycles(args.first_pdy, args.first_cycle, args.ncycles))
-    print(f"Rendered {args.out} with the cycle families {names}")
+    print(f"Rendered {args.out}; the first cycle is {args.first_pdy}{args.first_cycle}")
     return 0
 
 

@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
 #
-# Stage the initial conditions and run a number of GFSv17 ecflow realtime cycles
-# one after another.
+# Stage the initial conditions and start the GFSv17 ecflow realtime suite, then follow
+# a number of cycles.
 #
 # Steps:
 #   1. Run gfsv17_ecflow_rt_stage_ics.sh (same -p/-c rules) to find the cycle whose
 #      previous-cycle gdas/enkfgdas data exists and link that data into COMDIR.
-#   2. Load and begin the suite in gfs_dev.def if it is not begun yet. All cycle
-#      families start suspended, so nothing runs at begin.
-#   3. For each of the NCYCLES cycles: requeue and resume the cycle family named
-#      PDYCYC (the setup script renders one family per cycle, each with its own PDY),
-#      then wait for it to complete before starting the next one. After cycle 18
-#      the PDY moves to the next day, so 6 cycles from 06 are 06, 12, 18 on PDY
-#      and 00, 06, 12 on PDY+1.
+#   2. Load and begin the suite in gfs_dev.def if it is not begun yet. When it is begun
+#      here, also start the first cycle: force the cycle before it complete (which
+#      satisfies the cross-cycle triggers), force the cycle_end task of the first cycle
+#      complete (it has nothing to reset yet) and resume the first cycle family.
+#   3. From there the suite cycles by itself: the cycle_end task of each cycle family
+#      resets the family for the next day and moves its PDY forward.
+#   4. Wait until each of the NCYCLES cycles is complete (family complete with the PDY
+#      of that cycle), then suspend the suite. The cycles that already started by
+#      then stay in the state they are in until the suite is resumed.
 #
 # Usage: gfsv17_ecflow_rt_run_cycles.sh [-p PDY -c CYC] [-n NCYCLES] [-d DEF]
 #          [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [-h]
 #   -p PDY          first cycle date (YYYYMMDD), requires -c
 #   -c CYC          first cycle hour (00, 06, 12 or 18), requires -p
-#   -n NCYCLES      number of cycles to run (default 1)
+#   -n NCYCLES      number of cycles to wait for before suspending the suite (default 1)
 #   -d DEF          suite definition to load (default EXPDIR/gfs_dev.def, which the setup
-#                   script renders; needs --expdir when -d is not given)
+#                   script renders for the first cycle -p/-c; needs --expdir when -d is not given)
 #   --comroot DIR   set COMROOT on /suite/primary; the stage script COMDIR becomes
 #                   DIR/gfs/v17.0 unless COMDIR is already set
 #   --dataroot DIR  set DATAROOT on /suite/primary
@@ -64,13 +66,19 @@ suite_state() {
   ecf --query state "/${SUITE}" 2> /dev/null
 }
 
-# Wait until the cycle family is complete
+# Wait until the cycle family is complete for the given PDY
 wait_for_cycle() {
-  local family=$1 state warned=NO
+  local family=$1 pdy=$2 state family_pdy warned=NO
   while true; do
     state=$(ecf --query state "${family}" 2> /dev/null)
+    family_pdy=$(ecf --query variable "${family}:PDY" 2> /dev/null)
     case "${state}" in
-      complete) return 0 ;;
+      complete)
+        # The family stays complete from the day before until cycle_end resets it
+        if [[ "${family_pdy}" == "${pdy}" ]]; then
+          return 0
+        fi
+        ;;
       aborted)
         if [[ "${warned}" == "NO" ]]; then
           echo "  WARNING: a task in ${family} aborted; rerun it in ecflow and the cycle will continue"
@@ -153,6 +161,7 @@ if ((stage_rc != 0)); then
 fi
 pdy=$(sed -n 's/^PDY=//p' <<< "${stage_out}")
 cyc=$(sed -n 's/^CYC=//p' <<< "${stage_out}")
+prev_cyc=$(sed -n 's/^PREV_CYC=//p' <<< "${stage_out}")
 
 if ! ecf --ping > /dev/null 2>&1; then
   echo "ERROR: cannot reach the ecflow server; check ECF_HOST and ECF_PORT" >&2
@@ -160,6 +169,7 @@ if ! ecf --ping > /dev/null 2>&1; then
 fi
 
 state=$(suite_state)
+started=NO
 if [[ -z "${state}" ]]; then
   echo "Loading ${DEF_FILE}"
   ecf --load="${DEF_FILE}" || exit 1
@@ -168,6 +178,7 @@ fi
 if [[ "${state}" == "unknown" ]]; then
   echo "Beginning /${SUITE}"
   ecf --begin="${SUITE}" || exit 1
+  started=YES
 fi
 
 # Apply the directory options to the suite
@@ -177,26 +188,31 @@ for entry in "COMROOT:${comroot}" "DATAROOT:${dataroot}" "OUTPUTDIR:${outputdir}
   fi
 done
 
-family_exists() {
-  ecf --query state "/${SUITE}/primary/$1" > /dev/null 2>&1
-}
-
-# Every cycle family in the definition starts suspended and waits for its turn
-for ((n = 1; n <= ncycles; n++)); do
-  family="/${SUITE}/primary/${pdy}${cyc}"
-  echo "Cycle ${n} of ${ncycles}: ${pdy}${cyc}"
-  if ! family_exists "${pdy}${cyc}"; then
-    echo "ERROR: ${DEF_FILE} has no family ${pdy}${cyc}; render it again with -n ${ncycles} (setup script)" >&2
+first_family="/${SUITE}/primary/${cyc}"
+if [[ "${started}" == "YES" ]]; then
+  def_pdy=$(ecf --query variable "${first_family}:PDY" 2> /dev/null)
+  if [[ "${def_pdy}" != "${pdy}" ]]; then
+    echo "ERROR: ${DEF_FILE} has PDY ${def_pdy:-none} for cycle ${cyc}, not ${pdy}; render it again with the setup script (-p ${pdy} -c ${cyc})" >&2
     exit 1
   fi
-  ecf --requeue "${family}" || exit 1
-  ecf --resume="${family}" || exit 1
-  wait_for_cycle "${family}"
+  echo "Starting cycle ${pdy}${cyc}"
+  ecf --force=complete recursive "/${SUITE}/primary/${prev_cyc}" || exit 1
+  ecf --force=complete "${first_family}/cycle_end" || exit 1
+  ecf --resume="${first_family}" || exit 1
+else
+  echo "/${SUITE} is already begun; only waiting for the cycles"
+fi
+
+for ((n = 1; n <= ncycles; n++)); do
+  family="/${SUITE}/primary/${cyc}"
+  echo "Waiting for cycle ${n} of ${ncycles}: ${pdy}${cyc}"
+  wait_for_cycle "${family}" "${pdy}"
   echo "Cycle ${pdy}${cyc} is complete"
   stamp=$(next_cycle "${pdy}" "${cyc}") || exit 1
   pdy=${stamp:0:8}
   cyc=${stamp:8:2}
 done
 
-echo "Finished ${ncycles} cycle(s)"
+ecf --suspend="/${SUITE}" || exit 1
+echo "Finished ${ncycles} cycle(s); /${SUITE} is suspended (ecflow_client --resume=/${SUITE} continues it)"
 exit 0

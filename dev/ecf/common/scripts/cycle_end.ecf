@@ -31,9 +31,20 @@ suite_name=$(ecflow_client --query variable ${ECF_NAME}:SUITE)
 # Set job log directory for developer
 if [ $retro == "YES" ]; then
   outputdir_ecf=%OUTPUTDIR%
-  cd ${outputdir_ecf}/ecflocal
-  setpdy.sh
-  . ./PDY
+  if [ -n "%PDY:%" ]; then
+    # PDY is edited on the cycle families: this cycle follows the one before it
+    prev_pdy=$(ecflow_client --query variable /${suite_name}/primary/${prev_cyc}:PDY)
+    if [ ${cyc} == "00" ]; then
+      PDY=$(date -u -d "${prev_pdy} 1 day" +%Y%m%d)
+    else
+      PDY=${prev_pdy}
+    fi
+    ecflow_client --alter change variable PDY ${PDY} /${suite_name}/primary/${cyc}
+  else
+    cd ${outputdir_ecf}/ecflocal
+    setpdy.sh
+    . ./PDY
+  fi
   echo "Current retro PDY is $PDY"
   echo "Current retro cyc is $cyc"
   

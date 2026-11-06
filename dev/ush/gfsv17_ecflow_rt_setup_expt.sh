@@ -16,12 +16,12 @@
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
 #      %EXPDIR%/ecf. An existing <expdir>/ecf is never overwritten; remove it to
-#      regenerate.
+#      regenerate. The cycle_end.ecf script from dev/ecf/common/scripts is added to it.
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
-#      above. The definition has one family per cycle, named PDYCYC (for example
-#      2026010512), for the -n cycles from -p/-c, in run order, each with its own PDY.
-#      It is rendered again on every run.
+#      above. The definition has the four cycle families 00, 06, 12 and 18, each with
+#      its cycle_end task and an edited PDY, as in production: cycle_end resets each
+#      family for the next day and moves its PDY forward. It is rendered again on every run.
 #   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
 #      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
@@ -41,8 +41,8 @@
 #                      to --expdir instead of creating the experiment
 #   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
 #   -p PDY -c CYC      first cycle (required); also the start date of the experiment that is
-#                      created, and the first of the PDYCYC cycle families in the definition
-#   -n NCYCLES         number of cycles to run (default 1)
+#                      created, and the first cycle the suite starts
+#   -n NCYCLES         number of cycles the run script waits for before it suspends the suite (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
 #   --ecf-server-setup run the ecflow server steps on ECF_HOST first
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
@@ -143,13 +143,16 @@ build_and_link() {
 # Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there
 setup_ecf_scripts() {
   local ecf_dir=${expdir}/ecf
+  local cycle_end=${HOMEgfs}/dev/ecf/common/scripts/cycle_end.ecf
   if [[ -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
     echo "${ecf_dir} already exists; not overwritten"
+    [[ -e "${ecf_dir}/scripts/cycle_end.ecf" ]] || cp "${cycle_end}" "${ecf_dir}/scripts/" || return 1
     return 0
   fi
   rm -rf "${ecf_dir}"
   mkdir -p "${ecf_dir}" || return 1
   cp -a "${HOMEgfs}/dev/ecf/gfs/scripts" "${HOMEgfs}/dev/ecf/gfs/include" "${ecf_dir}/" || return 1
+  cp "${cycle_end}" "${ecf_dir}/scripts/" || return 1
   if ! (cd "${ecf_dir}" && bash "${HOMEgfs}/dev/ecf/gfs/setup_ecf_links.sh") > "${ecf_dir}/setup_ecf_links.log" 2>&1; then
     echo "ERROR: setup_ecf_links.sh failed; see ${ecf_dir}/setup_ecf_links.log" >&2
     tail -n 20 "${ecf_dir}/setup_ecf_links.log" >&2
@@ -162,7 +165,9 @@ setup_ecf_scripts() {
 # Print the commands that start the cases once the setup is done
 print_start_instructions() {
   local suite=gfs_v17_nco
-  local fam="/${suite}/primary/${pdy}${first_cycle}"
+  local fam="/${suite}/primary/${first_cycle}"
+  local prev
+  prev=$(printf '%02d' $(((10#${first_cycle} + 18) % 24)))
   cat << EOF
 
 To start the case by hand (the ecflow server must be running):
@@ -171,14 +176,15 @@ To start the case by hand (the ecflow server must be running):
   export ECF_PORT=${ecf_port:-$(($(id -u) + 2000))}
   ecflow_client --restart                       # only if the server is halted
   ecflow_client --load=${expdir}/gfs_dev.def
-  ecflow_client --begin=${suite}             # every cycle family (PDYCYC) starts suspended
-  ecflow_client --resume=${fam}   # runs the first cycle
+  ecflow_client --begin=${suite}                # the first cycle family (${first_cycle}) starts suspended
+  ecflow_client --force=complete recursive /${suite}/primary/${prev}   # the cycle before the first one
+  ecflow_client --force=complete ${fam}/cycle_end
+  ecflow_client --resume=${fam}                 # runs cycle ${pdy}${first_cycle}
 Check it with: ecflow_client --query state ${fam}   (or ecflow_ui)
-Each of the ${ncycles} cycles is its own family named PDYCYC. Once a cycle is complete,
-resume the next one: ecflow_client --resume=/${suite}/primary/<next PDYCYC>
-(the next cycle is 6 hours later; the PDY moves to the next day after 18).
+After that the suite cycles by itself: the cycle_end task of each family resets it for the
+next day and moves its PDY forward. To stop it: ecflow_client --suspend=/${suite}
 
-To let a script do all of this and wait between the cycles:
+To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
   nohup ${RUN_SCRIPT} ${run_args[*]-} \\
     --comroot ${comroot} --dataroot ${dataroot} --outputdir ${outputdir} --expdir ${expdir} \\
     -d ${expdir}/gfs_dev.def > ${expdir}/run_cycles.log 2>&1 &
@@ -319,7 +325,7 @@ fi
 setup_ecf_scripts || exit 1
 "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
   --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
-  --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || exit 1
+  --first-pdy "${pdy}" --first-cycle "${first_cycle}" || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
   # The run script stages the initial conditions otherwise
