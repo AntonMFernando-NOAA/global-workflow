@@ -1,17 +1,12 @@
-# Development retrospectives: the task that has NEXT_CYC edited hands the next cycle
-# family its date (this cycle plus 6 hours) and starts it
-if [ -n "%NEXT_CYC:%" ]; then
+# Development retrospectives: the task that has NEXT_FAMILY edited starts the family
+# of the next cycle (named by its PDYCYC) once it ends
+if [ -n "%NEXT_FAMILY:%" ]; then
   suite_name=$(ecflow_client --query variable ${ECF_NAME}:SUITE)
-  next_family=/${suite_name}/primary/%NEXT_CYC:%
-  next_pdycyc=$(date -u -d "${PDY} ${cyc}:00 UTC 6 hours" +%%Y%%m%%d%%H)
-  next_outputdir=%OUTPUTDIR%/${next_pdycyc}
+  next_family=/${suite_name}/primary/%NEXT_FAMILY:%
+  next_outputdir=$(ecflow_client --query variable /${suite_name}/primary:OUTPUTDIR)/%NEXT_FAMILY:%
   mkdir -p ${next_outputdir}
-  ecflow_client --suspend ${next_family}
-  ecflow_client --alter change variable PDYCYC ${next_pdycyc} ${next_family}
-  ecflow_client --alter change label PDYCYC ${next_pdycyc} ${next_family}
   for run in gfs gdas enkfgdas; do
     ecflow_client --alter add variable OUTPUTDIR ${next_outputdir} ${next_family}/${run}
-    ecflow_client --requeue=force ${next_family}/${run}
   done
   ecflow_client --resume ${next_family}
 fi

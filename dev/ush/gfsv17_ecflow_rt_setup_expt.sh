@@ -19,9 +19,10 @@
 #      given (use it after changing dev/ecf/gfs/include/head.h or tail.h).
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
-#      above. The definition has the four cycle families 00, 06, 12 and 18, each with
-#      an edited PDYCYC and no cycle_end task: the tail.h of the jgdas_fcst task of a
-#      cycle moves the next cycle family on and starts it. It is rendered again on every run.
+#      above. The definition has one family per cycle (-n of them), named by its PDYCYC:
+#      -p 20261106 -c 12 -n 5 gives 2026110612, 2026110618, 2026110700, 2026110706 and
+#      2026110712. There is no cycle_end task: the tail.h of the jgdas_fcst task of a
+#      cycle resumes the family of the next cycle. It is rendered again on every run.
 #   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
 #      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
@@ -42,7 +43,8 @@
 #   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
 #   -p PDY -c CYC      first cycle (required); also the start date of the experiment that is
 #                      created, and the first cycle the suite starts
-#   -n NCYCLES         number of cycles the run script waits for before it suspends the suite (default 1)
+#   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
+#                      before it suspends the suite (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
 #                      script delete the suite on the ecflow server and load the new definition
@@ -165,9 +167,7 @@ setup_ecf_scripts() {
 # Print the commands that start the cases once the setup is done
 print_start_instructions() {
   local suite=gfs_v17_nco
-  local fam="/${suite}/primary/${first_cycle}"
-  local prev
-  prev=$(printf '%02d' $(((10#${first_cycle} + 18) % 24)))
+  local fam="/${suite}/primary/${pdy}${first_cycle}"
   cat << EOF
 
 To start the case by hand (the ecflow server must be running):
@@ -176,12 +176,11 @@ To start the case by hand (the ecflow server must be running):
   export ECF_PORT=${ecf_port:-$(($(id -u) + 2000))}
   ecflow_client --restart                       # only if the server is halted
   ecflow_client --load=${expdir}/gfs_dev.def
-  ecflow_client --begin=${suite}                # the first cycle family (${first_cycle}) starts suspended
-  ecflow_client --force=complete recursive /${suite}/primary/${prev}   # the cycle before the first one
+  ecflow_client --begin=${suite}                # every cycle family starts suspended
   ecflow_client --resume=${fam}                 # runs cycle ${pdy}${first_cycle}
 Check it with: ecflow_client --query state ${fam}   (or ecflow_ui)
-After that the suite cycles by itself: when the jgdas_fcst task of a cycle ends, its tail.h gives
-the next cycle family its PDYCYC, requeues it and resumes it. To stop it: ecflow_client --suspend=/${suite}
+After that the suite runs by itself: when the jgdas_fcst task of a cycle ends, its tail.h resumes
+the family of the next cycle. To stop it: ecflow_client --suspend=/${suite}
 
 To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
   nohup ${RUN_SCRIPT} ${run_args[*]-} \\
@@ -329,7 +328,7 @@ fi
 setup_ecf_scripts || exit 1
 "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
   --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
-  --first-pdy "${pdy}" --first-cycle "${first_cycle}" || exit 1
+  --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || exit 1
 
 if [[ "${setup_only}" == "YES" ]]; then
   # The run script stages the initial conditions otherwise

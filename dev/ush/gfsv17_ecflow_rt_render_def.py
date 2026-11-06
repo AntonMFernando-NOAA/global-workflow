@@ -6,18 +6,18 @@ The rendered definition differs from gfs_prod.def as follows:
 * PACKAGEHOME, ENVIR, QUEUE, OUTPUTDIR and EXPDIR are set for the user, and
   ECF_INCLUDE, DATAROOT and COMROOT are added.
 * ECF_INCLUDE and every ECF_FILES point to <EXPDIR>/ecf.
-* The suite keeps the four cycle families 00, 06, 12 and 18 but not their cycle_end
-  tasks. Every family is suspended and has an edited PDYCYC (YYYYMMDDCC), the date
-  of the run it holds. The cycle families of the run get the PDYCYC of their first
-  run: with --first-pdy 20260105 --first-cycle 12 the families 12 and 18 get
-  2026010512 and 2026010518 and 00 gets 2026010600. The family of the cycle before
-  the first one (06) gets 2026010506; it is to be forced complete when the suite starts.
-  Each family also has a label PDYCYC with the same value, which ecflow_ui shows next
-  to the family name; tail.h keeps it up to date.
-* The jgdas_fcst task of each family has NEXT_CYC edited to the hour of the next
-  cycle. When it ends, tail.h gives that family its PDYCYC (the one of this cycle plus
-  6 hours), requeues it and resumes it, which is what cycle_end does in production.
-  Only the first cycle is resumed by hand.
+* The four cycle families 00, 06, 12 and 18 of gfs_prod.def are replaced by one
+  family per cycle of the run, named by its PDYCYC (YYYYMMDDCC). With --first-pdy
+  20261106 --first-cycle 12 --ncycles 5 the families are 2026110612, 2026110618,
+  2026110700, 2026110706 and 2026110712, each a copy of the gfs_prod.def family of
+  its cycle hour without the cycle_end task. Every family is suspended and has
+  PDYCYC edited to its name.
+* The triggers on the previous cycle (../../18/gdas/...) point to the family of the
+  previous cycle. The first family has no previous cycle in the suite, so these
+  terms are removed from its triggers.
+* The jgdas_fcst task of each family but the last has NEXT_FAMILY edited to the
+  name of the next family. When it ends, tail.h resumes that family, which is what
+  cycle_end does in production. Only the first family is resumed by hand.
 * A task that waited only on the clock (``trigger :TIME ...``) has no trigger: it
   runs once its family is resumed.
 """
@@ -37,10 +37,12 @@ TIME_TRIGGER = re.compile(r"^\s*trigger\s+:TIME\b")
 CYCLE_END_TASK = re.compile(r"^      task cycle_end\s*$")
 FCST_TASK = re.compile(r"^(\s*)task jgdas_fcst\s*$")
 ECF_FILES = re.compile(r"^(\s*edit ECF_FILES )'[^']*'\s*$")
+CROSS_CYCLE = re.compile(r"((?:\.\./)+)(00|06|12|18)/")
+TRIGGER = re.compile(r"^(\s*trigger\s+)(.*?)\s*$")
 
 
-def cycle_pdycycs(first_pdy, first_cycle):
-    """Return the PDYCYC that each cycle family has when the suite is loaded.
+def cycle_pdycycs(first_pdy, first_cycle, ncycles):
+    """Return the PDYCYC of each cycle of the run.
 
     Parameters
     ----------
@@ -48,41 +50,77 @@ def cycle_pdycycs(first_pdy, first_cycle):
         Date of the first cycle (YYYYMMDD).
     first_cycle : str
         Hour of the first cycle: 00, 06, 12 or 18.
+    ncycles : int
+        Number of cycles in the run.
 
     Returns
     -------
-    dict of str to str
-        PDYCYC (YYYYMMDDCC) of each cycle hour. The three cycles after the first one,
-        and the first one, have the PDYCYC of their first run; the cycle before the
-        first one has the PDYCYC it had before the run starts.
+    list of str
+        PDYCYC (YYYYMMDDCC) of each cycle, 6 hours apart, starting at the first one.
     """
     start = datetime.strptime(first_pdy + first_cycle, '%Y%m%d%H')
-    pdycycs = {}
-    for i in range(-1, 3):
-        stamp = (start + timedelta(hours=6 * i)).strftime('%Y%m%d%H')
-        pdycycs[stamp[8:]] = stamp
-    return pdycycs
+    return [(start + timedelta(hours=6 * i)).strftime('%Y%m%d%H') for i in range(ncycles)]
 
 
-def render_cycle(block, hour, pdycyc):
-    """Render the lines of one cycle family block.
+def render_trigger(line, prev_pdycyc):
+    """Point the previous cycle terms of a trigger line to the previous cycle family.
+
+    Parameters
+    ----------
+    line : str
+        A trigger line with references to the previous cycle family.
+    prev_pdycyc : str or None
+        Name of the previous cycle family, or None for the first family, in which
+        case the terms on the previous cycle are removed.
+
+    Returns
+    -------
+    str or None
+        The rendered line, or None when no term is left.
+
+    Raises
+    ------
+    ValueError
+        If a reference is not to the previous cycle hour.
+    """
+    if prev_pdycyc is not None:
+        def repl(match):
+            if match.group(2) != prev_pdycyc[8:]:
+                raise ValueError(f"trigger on cycle {match.group(2)}, not on the previous cycle: {line.strip()}")
+            return f"{match.group(1)}{prev_pdycyc}/"
+        return CROSS_CYCLE.sub(repl, line)
+    prefix, expr = TRIGGER.match(line).groups()
+    terms = [term for term in re.split(r"\s+and\s+", expr) if not CROSS_CYCLE.search(term)]
+    if not terms:
+        return None
+    return prefix + ' and '.join(terms)
+
+
+def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
+    """Render the lines of one cycle family.
 
     Parameters
     ----------
     block : list of str
-        Lines from "family NN" to its "endfamily".
-    hour : str
-        Cycle hour of the family.
+        Lines from "family NN" to its "endfamily" in the source.
     pdycyc : str
-        Date and hour (YYYYMMDDCC) set as PDYCYC on the family.
+        Date and hour (YYYYMMDDCC) of the cycle; also the family name.
+    prev_pdycyc : str or None
+        Name of the previous cycle family, None for the first family.
+    next_pdycyc : str or None
+        Name of the next cycle family, None for the last family.
 
     Returns
     -------
     tuple of (list of str, int, int)
         The rendered lines, the number of ECF_FILES edits found and the number of
         jgdas_fcst tasks found.
+
+    Raises
+    ------
+    ValueError
+        If a line other than a trigger refers to another cycle family.
     """
-    next_hour = f"{(int(hour) + 6) % 24:02d}"
     out = []
     n_ecf_files = 0
     n_fcst = 0
@@ -98,24 +136,35 @@ def render_cycle(block, hour, pdycyc):
             in_cycle_end = False
         if TIME_TRIGGER.match(line):
             continue
+        if CYCLE_FAMILY.match(line):
+            out.extend([f"    family {pdycyc}",
+                        "      defstatus suspended",
+                        f"      edit PDYCYC '{pdycyc}'"])
+            continue
+        if CYCLE_FAMILY_END.match(line):
+            out.append(f"    endfamily  //{pdycyc}")
+            continue
+        if not line.lstrip().startswith('#') and CROSS_CYCLE.search(line):
+            if not TRIGGER.match(line):
+                raise ValueError(f"reference to another cycle outside a trigger: {line.strip()}")
+            line = render_trigger(line, prev_pdycyc)
+            if line is None:
+                continue
         match = ECF_FILES.match(line)
         if match:
             out.append(f"{match.group(1)}'%EXPDIR%/ecf/scripts'")
             n_ecf_files += 1
             continue
         out.append(line)
-        if CYCLE_FAMILY.match(line):
-            out.append("      defstatus suspended")
-            out.append(f"      edit PDYCYC '{pdycyc}'")
-            out.append(f"      label PDYCYC '{pdycyc}'")
         match = FCST_TASK.match(line)
         if match:
-            out.append(f"{match.group(1)}  edit NEXT_CYC '{next_hour}'")
+            if next_pdycyc is not None:
+                out.append(f"{match.group(1)}  edit NEXT_FAMILY '{next_pdycyc}'")
             n_fcst += 1
     return out, n_ecf_files, n_fcst
 
 
-def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle):
+def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle, ncycles):
     """Apply the development changes to the lines of gfs_prod.def.
 
     Parameters
@@ -137,6 +186,8 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         Date of the first cycle to run (YYYYMMDD).
     first_cycle : str
         Hour of the first cycle to run.
+    ncycles : int
+        Number of cycles to run; one family is rendered for each.
 
     Returns
     -------
@@ -148,7 +199,6 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     ValueError
         If the source does not have the expected structure.
     """
-    pdycycs = cycle_pdycycs(first_pdy, first_cycle)
     header = {
         'PACKAGEHOME': [f"    edit PACKAGEHOME '{packagehome}'"],
         'ENVIR': ["    edit ENVIR 'para'"],
@@ -160,40 +210,53 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         'EXPDIR': [f"    edit EXPDIR '{expdir}'"],
     }
 
-    # Walk the source and render each line, keeping the cycle families in their place
-    out, seen_header = [], set()
-    n_ecf_files, n_fcst, n_families, current = 0, 0, 0, None
+    # Split the source into the lines before the cycle families, the families and the lines after them
+    before, after, blocks, seen_header = [], [], {}, set()
+    current = None
     for line in lines:
         match = CYCLE_FAMILY.match(line)
         if match:
-            current = (match.group(1), [])
-            n_families += 1
+            current = match.group(1)
+            blocks[current] = []
+            # Lines between the cycle families of the source are not kept
+            after = []
         if current is not None:
-            current[1].append(line)
+            blocks[current].append(line)
             if CYCLE_FAMILY_END.match(line):
-                hour, block = current
-                rendered, count, fcst = render_cycle(block, hour, pdycycs[hour])
-                out.extend(rendered)
-                n_ecf_files += count
-                n_fcst += fcst
                 current = None
+            continue
+        if blocks:
+            after.append(line)
             continue
         match = re.match(r"^    edit (\w+) ", line)
         if match and match.group(1) in header:
             seen_header.add(match.group(1))
-            out.extend(header[match.group(1)])
+            before.extend(header[match.group(1)])
         else:
-            out.append(line)
+            before.append(line)
 
-    if n_families != len(CYCLE_HOURS):
-        raise ValueError(f"expected the cycle families {CYCLE_HOURS}, found {n_families} families")
+    if sorted(blocks) != list(CYCLE_HOURS):
+        raise ValueError(f"expected the cycle families {CYCLE_HOURS}, found {sorted(blocks)}")
     missing = set(header) - seen_header
     if missing:
         raise ValueError(f"header edits not found in the source: {sorted(missing)}")
-    if n_ecf_files != 2 * len(CYCLE_HOURS):
-        raise ValueError(f"expected {2 * len(CYCLE_HOURS)} ECF_FILES edits, found {n_ecf_files}")
-    if n_fcst != len(CYCLE_HOURS):
-        raise ValueError(f"expected {len(CYCLE_HOURS)} jgdas_fcst tasks, found {n_fcst}")
+
+    pdycycs = cycle_pdycycs(first_pdy, first_cycle, ncycles)
+    out = list(before)
+    n_ecf_files, n_fcst = 0, 0
+    for i, pdycyc in enumerate(pdycycs):
+        prev_pdycyc = pdycycs[i - 1] if i > 0 else None
+        next_pdycyc = pdycycs[i + 1] if i + 1 < len(pdycycs) else None
+        rendered, count, fcst = render_cycle(blocks[pdycyc[8:]], pdycyc, prev_pdycyc, next_pdycyc)
+        out.extend(rendered)
+        n_ecf_files += count
+        n_fcst += fcst
+    out.extend(after)
+
+    if n_ecf_files != 2 * ncycles:
+        raise ValueError(f"expected {2 * ncycles} ECF_FILES edits, found {n_ecf_files}")
+    if n_fcst != ncycles:
+        raise ValueError(f"expected {ncycles} jgdas_fcst tasks, found {n_fcst}")
     if any(re.match(r"^[^#]*:TIME\b", line) for line in out):
         raise ValueError("a :TIME expression is left that is not a plain trigger line")
     return out
@@ -212,6 +275,7 @@ def input_args():
     parser.add_argument('--expdir', required=True, help='EXPDIR')
     parser.add_argument('--first-pdy', required=True, help='date (YYYYMMDD) of the first cycle')
     parser.add_argument('--first-cycle', choices=CYCLE_HOURS, required=True, help='hour of the first cycle')
+    parser.add_argument('--ncycles', type=int, default=1, help='number of cycles (families) to render')
     return parser.parse_args()
 
 
@@ -223,16 +287,20 @@ def main():
     except ValueError:
         print("ERROR: --first-pdy must be YYYYMMDD", file=sys.stderr)
         return 2
+    if args.ncycles < 1:
+        print("ERROR: --ncycles must be a positive integer", file=sys.stderr)
+        return 2
     lines = args.src.read_text().splitlines()
     try:
         out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.expdir,
-                     args.first_pdy, args.first_cycle)
+                     args.first_pdy, args.first_cycle, args.ncycles)
     except ValueError as err:
         print(f"ERROR: cannot render {args.src}: {err}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text('\n'.join(out) + '\n')
-    print(f"Rendered {args.out}; the first cycle is {args.first_pdy}{args.first_cycle}")
+    pdycycs = cycle_pdycycs(args.first_pdy, args.first_cycle, args.ncycles)
+    print(f"Rendered {args.out} with the cycle families {' '.join(pdycycs)}")
     return 0
 
 
