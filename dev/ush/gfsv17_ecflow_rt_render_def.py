@@ -58,6 +58,7 @@ def cycle_pdycycs(first_pdy, first_cycle):
     pdycycs = {}
     for i in range(-1, 3):
         stamp = (start + timedelta(hours=6 * i)).strftime('%Y%m%d%H')
+        hour = stamp[-2:]
         pdycycs[stamp[8:]] = stamp
     return pdycycs
 
@@ -105,6 +106,7 @@ def render_cycle(block, hour, pdycyc):
         if CYCLE_FAMILY.match(line):
             out.append("      defstatus suspended")
             out.append(f"      edit PDYCYC '{pdycyc}'")
+            out.append(f"      edit CYCLE_LABEL 'PDYCYC: {pdycyc}'")
         match = FCST_TASK.match(line)
         if match:
             out.append(f"{match.group(1)}  edit NEXT_CYC '{next_hour}'")

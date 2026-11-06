@@ -203,7 +203,9 @@ fi
 
 for ((n = 1; n <= ncycles; n++)); do
   family="/${SUITE}/primary/${cyc}"
-  echo "Waiting for cycle ${n} of ${ncycles}: ${pdy}${cyc}"
+  cycle_label="Cycle ${n}/${ncycles}: ${pdy}${cyc}"
+  echo "Waiting for ${cycle_label}"
+  ecf --alter change variable CYCLE_LABEL "${cycle_label}" "${family}" || true
   wait_for_cycle "${family}" "${pdy}${cyc}"
   echo "Cycle ${pdy}${cyc} is complete"
   stamp=$(next_cycle "${pdy}" "${cyc}") || exit 1
