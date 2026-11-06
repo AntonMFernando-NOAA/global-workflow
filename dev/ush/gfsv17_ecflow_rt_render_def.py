@@ -12,6 +12,8 @@ The rendered definition differs from gfs_prod.def as follows:
   run: with --first-pdy 20260105 --first-cycle 12 the families 12 and 18 get
   2026010512 and 2026010518 and 00 gets 2026010600. The family of the cycle before
   the first one (06) gets 2026010506; it is to be forced complete when the suite starts.
+  Each family also has a label PDYCYC with the same value, which ecflow_ui shows next
+  to the family name; tail.h keeps it up to date.
 * The jgdas_fcst task of each family has NEXT_CYC edited to the hour of the next
   cycle. When it ends, tail.h gives that family its PDYCYC (the one of this cycle plus
   6 hours), requeues it and resumes it, which is what cycle_end does in production.
@@ -58,7 +60,6 @@ def cycle_pdycycs(first_pdy, first_cycle):
     pdycycs = {}
     for i in range(-1, 3):
         stamp = (start + timedelta(hours=6 * i)).strftime('%Y%m%d%H')
-        hour = stamp[-2:]
         pdycycs[stamp[8:]] = stamp
     return pdycycs
 
@@ -106,7 +107,7 @@ def render_cycle(block, hour, pdycyc):
         if CYCLE_FAMILY.match(line):
             out.append("      defstatus suspended")
             out.append(f"      edit PDYCYC '{pdycyc}'")
-            out.append(f"      edit CYCLE_LABEL 'PDYCYC: {pdycyc}'")
+            out.append(f"      label PDYCYC '{pdycyc}'")
         match = FCST_TASK.match(line)
         if match:
             out.append(f"{match.group(1)}  edit NEXT_CYC '{next_hour}'")

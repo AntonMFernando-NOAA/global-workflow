@@ -8,6 +8,7 @@ if [ -n "%NEXT_CYC:%" ]; then
   mkdir -p ${next_outputdir}
   ecflow_client --suspend ${next_family}
   ecflow_client --alter change variable PDYCYC ${next_pdycyc} ${next_family}
+  ecflow_client --alter change label PDYCYC ${next_pdycyc} ${next_family}
   for run in gfs gdas enkfgdas; do
     ecflow_client --alter add variable OUTPUTDIR ${next_outputdir} ${next_family}/${run}
     ecflow_client --requeue=force ${next_family}/${run}
