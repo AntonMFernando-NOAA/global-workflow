@@ -3,6 +3,11 @@
 # Set up a GFSv17 ecflow realtime experiment and optionally run its cycles.
 #
 # Steps:
+#   0. If --expdir, --comroot, --dataroot or --outputdir already exist, list them and ask
+#      whether to delete them (-y deletes them without asking). When they are deleted,
+#      everything below is created from scratch and the run script replaces the suite
+#      on the ecflow server (as with --replace). When they are kept, only what is
+#      missing is created.
 #   1. With --ecf-server-setup: (re)start the ecflow server on ECF_HOST over ssh
 #      (first time use, or when the role account server needs a restart).
 #   2. Create COMROOT, DATAROOT and OUTPUTDIR.
@@ -10,8 +15,8 @@
 #      80 members, the retrov17_realtime.yaml configuration) in --expdir with
 #      dev/workflow/setup_expt.py, starting at the first cycle (-p, -c). COMROOT
 #      and EXPDIR in its config.base are the ones given here. With --expdir-src a
-#      rendered EXPDIR is copied to --expdir instead. An existing --expdir is never
-#      overwritten, so your edits are kept.
+#      rendered EXPDIR is copied to --expdir instead. An existing --expdir that is
+#      kept in step 0 is not overwritten, so your edits are kept.
 #   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
@@ -30,7 +35,7 @@
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
 #          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [-p PDY -c CYC] [-n NCYCLES]
-#          [--setup-only] [--replace] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
+#          [--setup-only] [-y] [--replace] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
 #          [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
 #   --build-link       first run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
@@ -46,6 +51,7 @@
 #   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
 #                      before it suspends the suite (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
+#   -y, --yes          delete the existing EXPDIR, COMROOT, DATAROOT and OUTPUTDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
 #                      script delete the suite on the ecflow server and load the new definition
 #   --ecf-server-setup run the ecflow server steps on ECF_HOST first
@@ -84,6 +90,7 @@ run_args=()
 first_cycle=""
 ncycles=1
 setup_only=NO
+assume_yes=NO
 replace=NO
 build_link=NO
 server_setup=NO
@@ -241,10 +248,64 @@ copy_expdir() {
   echo "Copied ${src} to ${expdir}"
 }
 
+# Ask whether to delete the EXPDIR, COMROOT, DATAROOT and OUTPUTDIR that already exist,
+# so the setup starts from scratch; with -y they are deleted without asking
+clean_existing() {
+  local dir answer resolved
+  local existing=()
+  for dir in "${expdir}" "${comroot}" "${dataroot}" "${outputdir}"; do
+    if [[ -e "${dir}" ]]; then
+      existing+=("${dir}")
+    fi
+  done
+  if ((${#existing[@]} == 0)); then
+    return 0
+  fi
+  for dir in "${existing[@]}"; do
+    resolved=$(realpath -m "${dir}")
+    # Refuse paths that are too close to the root or the home directory to be an experiment
+    if [[ "${resolved}" == "/" || "${resolved}" == "$(realpath -m "${HOME}")" || "${resolved}" =~ ^/[^/]+(/[^/]+)?$ ]]; then
+      echo "ERROR: refusing to delete ${dir}; give a dedicated experiment directory" >&2
+      return 1
+    fi
+    if [[ -n "${expdir_src}" && "$(realpath -m "${expdir_src}")/" == "${resolved}/"* ]]; then
+      echo "ERROR: --expdir-src ${expdir_src} is inside ${dir}, which would be deleted" >&2
+      return 1
+    fi
+  done
+  echo "These directories already exist:"
+  printf '  %s\n' "${existing[@]}"
+  if [[ "${assume_yes}" == "YES" ]]; then
+    answer=y
+  elif [[ -t 0 ]]; then
+    read -r -p "Delete them and set up from scratch? [y/N]: " answer
+  else
+    echo "WARNING: not asked (no terminal) and -y not given; the existing files are kept"
+    return 0
+  fi
+  if [[ ! "${answer}" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+    echo "Keeping the existing files; only the missing ones are created"
+    return 0
+  fi
+  for dir in "${existing[@]}"; do
+    echo "Deleting ${dir}"
+    rm -rf "${dir}" || return 1
+  done
+  # The suite on the ecflow server belongs to the deleted setup, so load the new one
+  if [[ "${replace}" == "NO" ]]; then
+    replace=YES
+    run_args+=(--replace)
+  fi
+}
+
 while (($# > 0)); do
   case "$1" in
     --setup-only)
       setup_only=YES
+      shift
+      ;;
+    -y | --yes)
+      assume_yes=YES
       shift
       ;;
     --replace)
@@ -310,6 +371,8 @@ if [[ ! "${pdy}" =~ ^[0-9]{8}$ || ! "${first_cycle}" =~ ^(00|06|12|18)$ ]]; then
   echo "ERROR: give -p PDY (YYYYMMDD) and -c CYC (00, 06, 12 or 18), the first cycle to run" >&2
   exit 2
 fi
+
+clean_existing || exit 1
 
 if [[ "${server_setup}" == "YES" ]]; then
   setup_ecflow_server || exit 1
