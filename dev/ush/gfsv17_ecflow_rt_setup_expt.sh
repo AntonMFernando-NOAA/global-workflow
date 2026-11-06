@@ -15,8 +15,8 @@
 #   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
-#      %EXPDIR%/ecf. An existing <expdir>/ecf is never overwritten; remove it to
-#      regenerate (do so after changing dev/ecf/gfs/include/head.h or tail.h).
+#      %EXPDIR%/ecf. An existing <expdir>/ecf is not overwritten unless --replace is
+#      given (use it after changing dev/ecf/gfs/include/head.h or tail.h).
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
 #      above. The definition has the four cycle families 00, 06, 12 and 18, each with
@@ -29,7 +29,7 @@
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
 #          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [-p PDY -c CYC] [-n NCYCLES]
-#          [--setup-only] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
+#          [--setup-only] [--replace] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
 #          [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
 #   --build-link       first run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
@@ -44,6 +44,8 @@
 #                      created, and the first cycle the suite starts
 #   -n NCYCLES         number of cycles the run script waits for before it suspends the suite (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
+#   --replace          start over: recreate <expdir>/ecf from the repository and have the run
+#                      script delete the suite on the ecflow server and load the new definition
 #   --ecf-server-setup run the ecflow server steps on ECF_HOST first
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
 #   --ecf-host HOST    ecflow server host (default ECF_HOST, e.g. cdecflow02 or ddecflow02)
@@ -80,6 +82,7 @@ run_args=()
 first_cycle=""
 ncycles=1
 setup_only=NO
+replace=NO
 build_link=NO
 server_setup=NO
 ecf_role=NO
@@ -143,7 +146,7 @@ build_and_link() {
 # Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there
 setup_ecf_scripts() {
   local ecf_dir=${expdir}/ecf
-  if [[ -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
+  if [[ "${replace}" == "NO" && -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
     echo "${ecf_dir} already exists; not overwritten"
     return 0
   fi
@@ -243,6 +246,11 @@ while (($# > 0)); do
   case "$1" in
     --setup-only)
       setup_only=YES
+      shift
+      ;;
+    --replace)
+      replace=YES
+      run_args+=("$1")
       shift
       ;;
     --build-link)

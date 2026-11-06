@@ -16,7 +16,7 @@
 #      then stay in the state they are in until the suite is resumed.
 #
 # Usage: gfsv17_ecflow_rt_run_cycles.sh [-p PDY -c CYC] [-n NCYCLES] [-d DEF]
-#          [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [-h]
+#          [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--replace] [-h]
 #   -p PDY          first cycle date (YYYYMMDD), requires -c
 #   -c CYC          first cycle hour (00, 06, 12 or 18), requires -p
 #   -n NCYCLES      number of cycles to wait for before suspending the suite (default 1)
@@ -28,6 +28,9 @@
 #   --outputdir DIR set OUTPUTDIR on /suite/primary
 #   --expdir DIR    set EXPDIR on /suite/primary; the suite reads its ecf scripts and
 #                   include files from DIR/ecf
+#   --replace       if the suite is already on the server, delete it (also its running
+#                   tasks) and load DEF; without it the suite on the server is kept and
+#                   DEF is not loaded
 #   -h              show this help
 # Variables not given keep the values written in the suite definition.
 #
@@ -97,8 +100,13 @@ comroot=""
 dataroot=""
 outputdir=""
 expdir=""
+replace=NO
 while (($# > 0)); do
   case "$1" in
+    --replace)
+      replace=YES
+      shift
+      ;;
     -p | -c | -n | -d | --comroot | --dataroot | --outputdir | --expdir)
       if (($# < 2)); then
         echo "ERROR: $1 needs a value" >&2
@@ -169,6 +177,14 @@ fi
 
 state=$(suite_state)
 started=NO
+if [[ -n "${state}" && "${replace}" == "YES" ]]; then
+  echo "Deleting /${SUITE} from the server (--replace)"
+  ecf --delete=force yes "/${SUITE}" || exit 1
+  state=""
+elif [[ -n "${state}" ]]; then
+  echo "WARNING: /${SUITE} is already on the server, so ${DEF_FILE} is not loaded and its changes are not seen;"
+  echo "         use --replace to delete the suite and load ${DEF_FILE}"
+fi
 if [[ -z "${state}" ]]; then
   echo "Loading ${DEF_FILE}"
   ecf --load="${DEF_FILE}" || exit 1
