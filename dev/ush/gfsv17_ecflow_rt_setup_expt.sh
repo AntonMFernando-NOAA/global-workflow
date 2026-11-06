@@ -16,12 +16,12 @@
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
 #      %EXPDIR%/ecf. An existing <expdir>/ecf is never overwritten; remove it to
-#      regenerate. The cycle_end.ecf script from dev/ecf/common/scripts is added to it.
+#      regenerate (do so after changing dev/ecf/gfs/include/head.h or tail.h).
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
 #      above. The definition has the four cycle families 00, 06, 12 and 18, each with
-#      its cycle_end task and an edited PDY, as in production: cycle_end resets each
-#      family for the next day and moves its PDY forward. It is rendered again on every run.
+#      an edited PDYCYC and no cycle_end task: the tail.h of the jgdas_fcst task of a
+#      cycle moves the next cycle family on and starts it. It is rendered again on every run.
 #   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
 #      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
 #      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
@@ -143,16 +143,13 @@ build_and_link() {
 # Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there
 setup_ecf_scripts() {
   local ecf_dir=${expdir}/ecf
-  local cycle_end=${HOMEgfs}/dev/ecf/common/scripts/cycle_end.ecf
   if [[ -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
     echo "${ecf_dir} already exists; not overwritten"
-    [[ -e "${ecf_dir}/scripts/cycle_end.ecf" ]] || cp "${cycle_end}" "${ecf_dir}/scripts/" || return 1
     return 0
   fi
   rm -rf "${ecf_dir}"
   mkdir -p "${ecf_dir}" || return 1
   cp -a "${HOMEgfs}/dev/ecf/gfs/scripts" "${HOMEgfs}/dev/ecf/gfs/include" "${ecf_dir}/" || return 1
-  cp "${cycle_end}" "${ecf_dir}/scripts/" || return 1
   if ! (cd "${ecf_dir}" && bash "${HOMEgfs}/dev/ecf/gfs/setup_ecf_links.sh") > "${ecf_dir}/setup_ecf_links.log" 2>&1; then
     echo "ERROR: setup_ecf_links.sh failed; see ${ecf_dir}/setup_ecf_links.log" >&2
     tail -n 20 "${ecf_dir}/setup_ecf_links.log" >&2
@@ -178,11 +175,10 @@ To start the case by hand (the ecflow server must be running):
   ecflow_client --load=${expdir}/gfs_dev.def
   ecflow_client --begin=${suite}                # the first cycle family (${first_cycle}) starts suspended
   ecflow_client --force=complete recursive /${suite}/primary/${prev}   # the cycle before the first one
-  ecflow_client --force=complete ${fam}/cycle_end
   ecflow_client --resume=${fam}                 # runs cycle ${pdy}${first_cycle}
 Check it with: ecflow_client --query state ${fam}   (or ecflow_ui)
-After that the suite cycles by itself: the cycle_end task of each family resets it for the
-next day and moves its PDY forward. To stop it: ecflow_client --suspend=/${suite}
+After that the suite cycles by itself: when the jgdas_fcst task of a cycle ends, its tail.h gives
+the next cycle family its PDYCYC, requeues it and resumes it. To stop it: ecflow_client --suspend=/${suite}
 
 To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
   nohup ${RUN_SCRIPT} ${run_args[*]-} \\

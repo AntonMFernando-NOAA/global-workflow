@@ -6,18 +6,18 @@ The rendered definition differs from gfs_prod.def as follows:
 * PACKAGEHOME, ENVIR, QUEUE, OUTPUTDIR and EXPDIR are set for the user, and
   ECF_INCLUDE, DATAROOT and COMROOT are added.
 * ECF_INCLUDE and every ECF_FILES point to <EXPDIR>/ecf.
-* The suite keeps the four cycle families 00, 06, 12 and 18, and the cycle_end
-  task of each one. cycle_end resets its family for the next day and moves its PDY
-  forward, so the suite cycles by itself as in production.
-* Every cycle family has an edited PDY. The cycle families of the run get the PDY
-  of their first run: with --first-pdy 20260105 --first-cycle 12 the families 12
-  and 18 get 20260105 and 00 gets 20260106. The family of the cycle before the
-  first one (06) gets 20260105; it is to be forced complete when the suite starts.
-* A task that waited only on the clock (``trigger :TIME ...``) waits for the
-  cycle_end task of its own family to be complete instead, so a cycle prepares
-  its input after cycle_end has reset it and not at once when the suite begins.
-* The first cycle family starts suspended, so that the start steps can be done
-  before it runs.
+* The suite keeps the four cycle families 00, 06, 12 and 18 but not their cycle_end
+  tasks. Every family is suspended and has an edited PDYCYC (YYYYMMDDCC), the date
+  of the run it holds. The cycle families of the run get the PDYCYC of their first
+  run: with --first-pdy 20260105 --first-cycle 12 the families 12 and 18 get
+  2026010512 and 2026010518 and 00 gets 2026010600. The family of the cycle before
+  the first one (06) gets 2026010506; it is to be forced complete when the suite starts.
+* The jgdas_fcst task of each family has NEXT_CYC edited to the hour of the next
+  cycle. When it ends, tail.h gives that family its PDYCYC (the one of this cycle plus
+  6 hours), requeues it and resumes it, which is what cycle_end does in production.
+  Only the first cycle is resumed by hand.
+* A task that waited only on the clock (``trigger :TIME ...``) has no trigger: it
+  runs once its family is resumed.
 """
 
 import re
@@ -29,15 +29,16 @@ from pathlib import Path
 CYCLE_HOURS = ('00', '06', '12', '18')
 DEFAULT_SRC = Path(__file__).resolve().parent.parent / 'ecf' / 'gfs' / 'defs' / 'gfs_prod.def'
 
-SUITE = re.compile(r"^suite\s+(\S+)\s*$")
 CYCLE_FAMILY = re.compile(r"^    family (00|06|12|18)\s*$")
 CYCLE_FAMILY_END = re.compile(r"^    endfamily\b")
-TIME_TRIGGER = re.compile(r"^(\s*)trigger\s+:TIME\b")
+TIME_TRIGGER = re.compile(r"^\s*trigger\s+:TIME\b")
+CYCLE_END_TASK = re.compile(r"^      task cycle_end\s*$")
+FCST_TASK = re.compile(r"^(\s*)task jgdas_fcst\s*$")
 ECF_FILES = re.compile(r"^(\s*edit ECF_FILES )'[^']*'\s*$")
 
 
-def cycle_pdys(first_pdy, first_cycle):
-    """Return the PDY that each cycle family has when the suite is loaded.
+def cycle_pdycycs(first_pdy, first_cycle):
+    """Return the PDYCYC that each cycle family has when the suite is loaded.
 
     Parameters
     ----------
@@ -49,19 +50,19 @@ def cycle_pdys(first_pdy, first_cycle):
     Returns
     -------
     dict of str to str
-        PDY of each cycle hour. The three cycles after the first one, and the first
-        one, have the PDY of their first run; the cycle before the first one has the
-        PDY it had before the run starts.
+        PDYCYC (YYYYMMDDCC) of each cycle hour. The three cycles after the first one,
+        and the first one, have the PDYCYC of their first run; the cycle before the
+        first one has the PDYCYC it had before the run starts.
     """
     start = datetime.strptime(first_pdy + first_cycle, '%Y%m%d%H')
-    pdys = {}
+    pdycycs = {}
     for i in range(-1, 3):
         stamp = (start + timedelta(hours=6 * i)).strftime('%Y%m%d%H')
-        pdys[stamp[8:]] = stamp[:8]
-    return pdys
+        pdycycs[stamp[8:]] = stamp
+    return pdycycs
 
 
-def render_cycle(block, hour, pdy, suite, suspended):
+def render_cycle(block, hour, pdycyc):
     """Render the lines of one cycle family block.
 
     Parameters
@@ -70,24 +71,30 @@ def render_cycle(block, hour, pdy, suite, suspended):
         Lines from "family NN" to its "endfamily".
     hour : str
         Cycle hour of the family.
-    pdy : str
-        Date set as PDY on the family.
-    suite : str
-        Name of the suite, used in the path of the cycle_end task.
-    suspended : bool
-        Whether the family starts suspended.
+    pdycyc : str
+        Date and hour (YYYYMMDDCC) set as PDYCYC on the family.
 
     Returns
     -------
-    tuple of (list of str, int)
-        The rendered lines and the number of ECF_FILES edits found.
+    tuple of (list of str, int, int)
+        The rendered lines, the number of ECF_FILES edits found and the number of
+        jgdas_fcst tasks found.
     """
+    next_hour = f"{(int(hour) + 6) % 24:02d}"
     out = []
     n_ecf_files = 0
+    n_fcst = 0
+    in_cycle_end = False
     for line in block:
-        match = TIME_TRIGGER.match(line)
-        if match:
-            out.append(f"{match.group(1)}trigger /{suite}/primary/{hour}/cycle_end == complete")
+        if CYCLE_END_TASK.match(line):
+            in_cycle_end = True
+            continue
+        if in_cycle_end:
+            # The lines of the cycle_end task are indented deeper than the task
+            if line.startswith("        "):
+                continue
+            in_cycle_end = False
+        if TIME_TRIGGER.match(line):
             continue
         match = ECF_FILES.match(line)
         if match:
@@ -96,10 +103,13 @@ def render_cycle(block, hour, pdy, suite, suspended):
             continue
         out.append(line)
         if CYCLE_FAMILY.match(line):
-            if suspended:
-                out.append("      defstatus suspended")
-            out.append(f"      edit PDY '{pdy}'")
-    return out, n_ecf_files
+            out.append("      defstatus suspended")
+            out.append(f"      edit PDYCYC '{pdycyc}'")
+        match = FCST_TASK.match(line)
+        if match:
+            out.append(f"{match.group(1)}  edit NEXT_CYC '{next_hour}'")
+            n_fcst += 1
+    return out, n_ecf_files, n_fcst
 
 
 def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle):
@@ -135,7 +145,7 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     ValueError
         If the source does not have the expected structure.
     """
-    pdys = cycle_pdys(first_pdy, first_cycle)
+    pdycycs = cycle_pdycycs(first_pdy, first_cycle)
     header = {
         'PACKAGEHOME': [f"    edit PACKAGEHOME '{packagehome}'"],
         'ENVIR': ["    edit ENVIR 'para'"],
@@ -148,12 +158,9 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     }
 
     # Walk the source and render each line, keeping the cycle families in their place
-    out, seen_header, suite = [], set(), None
-    n_ecf_files, n_families, current = 0, 0, None
+    out, seen_header = [], set()
+    n_ecf_files, n_fcst, n_families, current = 0, 0, 0, None
     for line in lines:
-        match = SUITE.match(line)
-        if match:
-            suite = match.group(1)
         match = CYCLE_FAMILY.match(line)
         if match:
             current = (match.group(1), [])
@@ -162,9 +169,10 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
             current[1].append(line)
             if CYCLE_FAMILY_END.match(line):
                 hour, block = current
-                rendered, count = render_cycle(block, hour, pdys[hour], suite, hour == first_cycle)
+                rendered, count, fcst = render_cycle(block, hour, pdycycs[hour])
                 out.extend(rendered)
                 n_ecf_files += count
+                n_fcst += fcst
                 current = None
             continue
         match = re.match(r"^    edit (\w+) ", line)
@@ -179,10 +187,10 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     missing = set(header) - seen_header
     if missing:
         raise ValueError(f"header edits not found in the source: {sorted(missing)}")
-    if suite is None:
-        raise ValueError("suite name not found in the source")
     if n_ecf_files != 2 * len(CYCLE_HOURS):
         raise ValueError(f"expected {2 * len(CYCLE_HOURS)} ECF_FILES edits, found {n_ecf_files}")
+    if n_fcst != len(CYCLE_HOURS):
+        raise ValueError(f"expected {len(CYCLE_HOURS)} jgdas_fcst tasks, found {n_fcst}")
     if any(re.match(r"^[^#]*:TIME\b", line) for line in out):
         raise ValueError("a :TIME expression is left that is not a plain trigger line")
     return out

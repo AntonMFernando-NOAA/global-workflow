@@ -23,9 +23,10 @@ if [ -d /apps/ops/prod ]; then # On WCOSS2
 fi
 
 module load prod_util
-# An edited PDY in the suite definition takes precedence over the ops date file
-if [ -n "%PDY:%" ]; then
-  export PDY=%PDY:%
+# An edited PDYCYC (YYYYMMDDCC) in the suite definition takes precedence over the ops date file
+if [ -n "%PDYCYC:%" ]; then
+  export PDYCYC=%PDYCYC:%
+  export PDY=${PDYCYC:0:8}
 else
   export PDY=$(cut -c7-14 /lfs/h1/ops/prod/com/date/t%CYC%z)
 fi

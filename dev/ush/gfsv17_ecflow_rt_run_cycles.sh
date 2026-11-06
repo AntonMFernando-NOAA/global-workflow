@@ -8,11 +8,10 @@
 #      previous-cycle gdas/enkfgdas data exists and link that data into COMDIR.
 #   2. Load and begin the suite in gfs_dev.def if it is not begun yet. When it is begun
 #      here, also start the first cycle: force the cycle before it complete (which
-#      satisfies the cross-cycle triggers), force the cycle_end task of the first cycle
-#      complete (it has nothing to reset yet) and resume the first cycle family.
-#   3. From there the suite cycles by itself: the cycle_end task of each cycle family
-#      resets the family for the next day and moves its PDY forward.
-#   4. Wait until each of the NCYCLES cycles is complete (family complete with the PDY
+#      satisfies the cross-cycle triggers) and resume the first cycle family.
+#   3. From there the suite cycles by itself: when the jgdas_fcst task of a cycle ends,
+#      tail.h gives the next cycle family its PDYCYC, requeues it and resumes it.
+#   4. Wait until each of the NCYCLES cycles is complete (family complete with the PDYCYC
 #      of that cycle), then suspend the suite. The cycles that already started by
 #      then stay in the state they are in until the suite is resumed.
 #
@@ -66,16 +65,16 @@ suite_state() {
   ecf --query state "/${SUITE}" 2> /dev/null
 }
 
-# Wait until the cycle family is complete for the given PDY
+# Wait until the cycle family is complete for the given PDYCYC
 wait_for_cycle() {
-  local family=$1 pdy=$2 state family_pdy warned=NO
+  local family=$1 pdycyc=$2 state family_pdycyc warned=NO
   while true; do
     state=$(ecf --query state "${family}" 2> /dev/null)
-    family_pdy=$(ecf --query variable "${family}:PDY" 2> /dev/null)
+    family_pdycyc=$(ecf --query variable "${family}:PDYCYC" 2> /dev/null)
     case "${state}" in
       complete)
-        # The family stays complete from the day before until cycle_end resets it
-        if [[ "${family_pdy}" == "${pdy}" ]]; then
+        # The family stays complete from the day before until the previous cycle requeues it
+        if [[ "${family_pdycyc}" == "${pdycyc}" ]]; then
           return 0
         fi
         ;;
@@ -190,14 +189,13 @@ done
 
 first_family="/${SUITE}/primary/${cyc}"
 if [[ "${started}" == "YES" ]]; then
-  def_pdy=$(ecf --query variable "${first_family}:PDY" 2> /dev/null)
-  if [[ "${def_pdy}" != "${pdy}" ]]; then
-    echo "ERROR: ${DEF_FILE} has PDY ${def_pdy:-none} for cycle ${cyc}, not ${pdy}; render it again with the setup script (-p ${pdy} -c ${cyc})" >&2
+  def_pdycyc=$(ecf --query variable "${first_family}:PDYCYC" 2> /dev/null)
+  if [[ "${def_pdycyc}" != "${pdy}${cyc}" ]]; then
+    echo "ERROR: ${DEF_FILE} has PDYCYC ${def_pdycyc:-none} for cycle ${cyc}, not ${pdy}${cyc}; render it again with the setup script (-p ${pdy} -c ${cyc})" >&2
     exit 1
   fi
   echo "Starting cycle ${pdy}${cyc}"
   ecf --force=complete recursive "/${SUITE}/primary/${prev_cyc}" || exit 1
-  ecf --force=complete "${first_family}/cycle_end" || exit 1
   ecf --resume="${first_family}" || exit 1
 else
   echo "/${SUITE} is already begun; only waiting for the cycles"
@@ -206,7 +204,7 @@ fi
 for ((n = 1; n <= ncycles; n++)); do
   family="/${SUITE}/primary/${cyc}"
   echo "Waiting for cycle ${n} of ${ncycles}: ${pdy}${cyc}"
-  wait_for_cycle "${family}" "${pdy}"
+  wait_for_cycle "${family}" "${pdy}${cyc}"
   echo "Cycle ${pdy}${cyc} is complete"
   stamp=$(next_cycle "${pdy}" "${cyc}") || exit 1
   pdy=${stamp:0:8}
