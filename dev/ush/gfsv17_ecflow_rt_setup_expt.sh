@@ -414,21 +414,16 @@ setup_ecf_scripts() {
 
 # Print the commands that start the cases once the setup is done
 print_start_instructions() {
-  local fam="/${suite}/primary/${pdy}${first_cycle}"
   local ec="ecflow_client --host=${ecf_host:-<ecflow server host>} --port=${ecf_port:-$(($(id -u) + 2000))}"
   cat << EOF
 
-To start the case by hand (the ecflow server must be running):
-  module load ecflow
-  ${ec} --restart                       # only if the server is halted
+Start the suite by hand (module load ecflow first):
+  ${ec} --delete=force yes /${suite}    # only if an old suite is loaded
   ${ec} --load=${expdir}/gfs_dev.def
-  ${ec} --begin=${suite}                # every cycle family starts suspended
-  ${ec} --resume=${fam}                 # runs cycle ${pdy}${first_cycle}
-Check it with: ${ec} --query state ${fam}   (or ecflow_ui)
-After that the suite runs by itself: when the jgdas_fcst task of a cycle ends, its tail.h resumes
-the family of the next cycle. To stop it: ${ec} --suspend=/${suite}
+  ${ec} --begin=${suite}
+  ${ec} --resume=/${suite}/primary/${pdy}${first_cycle}
 
-To let a script do all of this (the suite stops by itself after ${ncycles} cycle(s)):
+Or with the run script:
   ECF_HOST=${ecf_host:-<ecflow server host>} ECF_PORT=${ecf_port:-$(($(id -u) + 2000))} ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} --suite ${suite} ${run_args[*]-} -d ${expdir}/gfs_dev.def
 EOF
 }
