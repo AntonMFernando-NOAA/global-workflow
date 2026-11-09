@@ -4,8 +4,8 @@
 # only its own step; when several are given they run in this order. With none, this help
 # is shown.
 #
-#   --ecf-server-setup (re)start the ecflow server on ECF_HOST over ssh (first time use, or
-#                      when the role account server needs a restart)
+#   --ecf-server-setup ping the ecflow server on ECF_HOST; only if it does not answer, set it
+#                      up over ssh and ping it again
 #   --build-link       run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --check-data       tell whether the previous cycle gdas/enkfgdas data exist for the cycle
 #                      -p/-c, or for the current cycle when they are omitted
@@ -68,7 +68,8 @@
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
 #                      script delete the suite on the ecflow server and load the new definition
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
-#   --ecf-host HOST    ecflow server host (default ECF_HOST, e.g. cdecflow02 or ddecflow02)
+#   --ecf-host HOST    ecflow server host (default ECF_HOST, otherwise cdecflow02 on Cactus
+#                      and ddecflow02 on Dogwood)
 #   --ecf-port PORT    ecflow server port (default id -u + 2000)
 #   --ecf-users LIST   users to add to the server access list after the restart
 #   -h                 show this help
@@ -130,6 +131,13 @@ setup_ecflow_server() {
     return 1
   fi
   : "${ecf_port:=$(($(id -u) + 2000))}"
+  if command -v module > /dev/null 2>&1; then
+    module load ecflow
+  fi
+  if ecflow_client --host="${ecf_host}" --port="${ecf_port}" --ping; then
+    echo "The ecflow server on ${ecf_host} port ${ecf_port} is already running"
+    return 0
+  fi
   echo "Setting up the ecflow server on ${ecf_host} port ${ecf_port} with ECF_ROOT ${ecf_root}"
 
   ssh "${ecf_host}" env \
@@ -157,6 +165,11 @@ if [[ -n "${ECF_USERS}" ]]; then
   ecflow_client --reloadwsfile
 fi
 EOF
+  if ! ecflow_client --host="${ecf_host}" --port="${ecf_port}" --ping; then
+    echo "ERROR: the ecflow server on ${ecf_host} port ${ecf_port} does not answer after the setup" >&2
+    return 1
+  fi
+  echo "The ecflow server on ${ecf_host} port ${ecf_port} is running"
 }
 
 # Build all executables and link them
@@ -479,6 +492,14 @@ done
 if [[ "${server_setup}${build_link}${check_data}${stage}${setup}" != *YES* ]]; then
   usage >&2
   exit 2
+fi
+
+if [[ -z "${ecf_host}" ]]; then
+  case "$(hostname -s)" in
+    c*) ecf_host=cdecflow02 ;;
+    d*) ecf_host=ddecflow02 ;;
+    *) ;;
+  esac
 fi
 
 if [[ "${server_setup}" == "YES" ]]; then
