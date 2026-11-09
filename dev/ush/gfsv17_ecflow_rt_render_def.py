@@ -39,6 +39,8 @@ FCST_TASK = re.compile(r"^(\s*)task jgdas_fcst\s*$")
 ECF_FILES = re.compile(r"^(\s*edit ECF_FILES )'[^']*'\s*$")
 CROSS_CYCLE = re.compile(r"((?:\.\./)+)(00|06|12|18)/")
 TRIGGER = re.compile(r"^(\s*trigger\s+)(.*?)\s*$")
+SUITE_LINE = re.compile(r"^suite\s+\S+\s*$")
+SUITE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 
 def cycle_pdycycs(first_pdy, first_cycle, ncycles):
@@ -262,12 +264,40 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
     return out
 
 
+def rename_suite(lines, name):
+    """Return the lines with the suite named ``name``.
+
+    Parameters
+    ----------
+    lines : list of str
+        Lines of the definition, without line endings.
+    name : str
+        New name of the suite.
+
+    Returns
+    -------
+    list of str
+        The lines with the ``suite`` line replaced.
+    """
+    renamed = []
+    count = 0
+    for line in lines:
+        if SUITE_LINE.match(line):
+            line = f"suite {name}"
+            count += 1
+        renamed.append(line)
+    if count != 1:
+        raise ValueError(f"expected one suite line, found {count}")
+    return renamed
+
+
 def input_args():
     """Collect the command line arguments."""
     parser = ArgumentParser(description=__doc__.split('\n')[0],
                             formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--src', type=Path, default=DEFAULT_SRC, help='definition to start from')
     parser.add_argument('--out', type=Path, required=True, help='rendered definition to write')
+    parser.add_argument('--suite', default='gfs_v17_nco', help='name of the suite')
     parser.add_argument('--packagehome', required=True, help='global-workflow clone')
     parser.add_argument('--comroot', required=True, help='COMROOT')
     parser.add_argument('--dataroot', required=True, help='DATAROOT')
@@ -287,6 +317,9 @@ def main():
     except ValueError:
         print("ERROR: --first-pdy must be YYYYMMDD", file=sys.stderr)
         return 2
+    if not SUITE_NAME.match(args.suite):
+        print("ERROR: --suite must be letters, digits, underscores and dots, not starting with a digit", file=sys.stderr)
+        return 2
     if args.ncycles < 1:
         print("ERROR: --ncycles must be a positive integer", file=sys.stderr)
         return 2
@@ -294,13 +327,14 @@ def main():
     try:
         out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.expdir,
                      args.first_pdy, args.first_cycle, args.ncycles)
+        out = rename_suite(out, args.suite)
     except ValueError as err:
         print(f"ERROR: cannot render {args.src}: {err}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text('\n'.join(out) + '\n')
     pdycycs = cycle_pdycycs(args.first_pdy, args.first_cycle, args.ncycles)
-    print(f"Rendered {args.out} with the cycle families {' '.join(pdycycs)}")
+    print(f"Rendered {args.out} (suite {args.suite}) with the cycle families {' '.join(pdycycs)}")
     return 0
 
 

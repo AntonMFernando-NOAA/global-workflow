@@ -30,8 +30,8 @@
 #      on the ecflow server (as with --replace). When they are kept, only what is
 #      missing is created.
 #   2. Create COMROOT, DATAROOT and OUTPUTDIR.
-#   3. Create the high resolution experiment (C1152 atmosphere, 0.25 degree ocean,
-#      80 members, the retrov17_realtime.yaml configuration) in --expdir with
+#   3. Create the high resolution experiment described in the experiment block of the config
+#      file in --expdir with
 #      dev/workflow/setup_expt.py, starting at the first cycle (-p, -c). COMROOT
 #      and EXPDIR in its config.base are the ones given here. With --expdir-src a
 #      rendered EXPDIR is copied to --expdir instead. An existing --expdir that is
@@ -51,40 +51,57 @@
 #      gfsv17_ecflow_rt_run_cycles.sh can do that and wait for the cycles.
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--ecf-server-setup] [--build-link] [--check-data] [--stage]
-#          [--setup] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--comroot DIR] [--dataroot DIR]
-#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
-#          [--ecf-host HOST] [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
-#   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
-#   --dataroot DIR     DATAROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/RUNDIR)
-#   --outputdir DIR    OUTPUTDIR (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/OUTPUT)
+#          [--setup] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--config FILE] [--pslot NAME] [--suite NAME] [--comroot DIR]
+#          [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
+#          [--ecf-host HOST] [--ecf-port PORT] [--ecf-users USER[,USER...]] [--set SECTION.KEY=VALUE] [-h]
+#   --config FILE      yaml file with the defaults of the options below and of the experiment
+#                      (default dev/ci/cases/gfsv17/ecflow_rt_highres.yaml, which is not meant to be
+#                      edited: override its values with the options below, --set or ECFRT_ variables)
+#   --set SECTION.KEY=VALUE
+#                      override one setting of the config file, for example experiment.pslot=my_test
+#                      or experiment.nens=30; it can be repeated
+#   --pslot NAME       experiment name, the last part of --expdir (default experiment.pslot);
+#                      ignored when --expdir is given, whose last part is then the name
+#   --suite NAME       name of the suite on the ecflow server (default ecflow.suite)
+#   --comroot DIR      COMROOT (default experiment.comroot)
+#   --dataroot DIR     DATAROOT (default ecflow.dataroot)
+#   --outputdir DIR    OUTPUTDIR (default ecflow.outputdir)
 #   --expdir DIR       experiment directory to create; its name is the pslot
-#                      (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/EXPDIR/rt17_ecflow_highres)
+#                      (default experiment.expdir/experiment.pslot)
 #   --expdir-src DIR   copy this already rendered EXPDIR (or the one pslot directory in it)
 #                      to --expdir instead of creating the experiment
-#   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
+#   --icsdir DIR       ICSDIR given to setup_expt.py (default experiment.icsdir)
 #   -p PDY -c CYC      first cycle; also the start date of the experiment that is created, and
 #                      the first cycle the suite starts. When both are omitted they are chosen
 #                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
 #   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
-#                      before it suspends the suite (default 1)
+#                      before it suspends the suite (default ecflow.ncycles)
 #   -y, --yes          with --stage, do not ask; with --setup, delete the existing EXPDIR,
 #                      DATAROOT and OUTPUTDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
 #                      script delete the suite on the ecflow server and load the new definition
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
-#   --ecf-host HOST    ecflow server host (default ECF_HOST, otherwise cdecflow02 on Cactus
-#                      and ddecflow02 on Dogwood)
-#   --ecf-port PORT    ecflow server port (default ECF_PORT, otherwise the port of your running
-#                      server on the host, otherwise id -u + 2000)
+#   --ecf-host HOST    ecflow server host (default ECF_HOST, then ecflow.host, otherwise
+#                      cdecflow02 on Cactus and ddecflow02 on Dogwood)
+#   --ecf-port PORT    ecflow server port (default ECF_PORT, then ecflow.port, otherwise the port
+#                      of your running server on the host, otherwise id -u + 2000)
 #   --ecf-users LIST   users to add to the server access list after the restart
 #   -h                 show this help
 #
 # Run it after loading the workflow environment (source dev/ush/gw_setup.sh) so that
-# setup_expt.py finds wxflow.
+# the config file can be read and setup_expt.py finds wxflow.
+#
+# The settings of the config file can be loaded into your environment first with
+#   source dev/ush/gfsv17_ecflow_rt_env.sh [CONFIG_FILE]
+# which exports them as ECFRT_<SECTION>_<KEY> (experiment.pslot is ECFRT_EXPERIMENT_PSLOT).
+# A value is taken from the first of: its command line option (--set, --comroot, ...), the
+# ECFRT_ variable, the config file. A loaded or exported ECFRT_ variable therefore also wins
+# over --config FILE; source the env file again with the other file to change them.
 #
 # Environment overrides:
 #   ECF_ROOT_ROLE  role account ecflow root (default /lfs/h2/emc/global/noscrub/emc.global/ecflow)
-#   EDATE          end date of the created experiment (default 2027011600)
+#   EDATE          end date of the created experiment (default experiment.edate)
+#   SRC_COMROOT    realtime comroot with the first cycle data (default ecflow.src_comroot)
 
 set -u
 
@@ -93,20 +110,32 @@ RUN_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_run_cycles.sh"
 STAGE_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_stage_ics.sh"
 HOMEgfs=$(cd "${SCRIPT_DIR}/../.." && pwd)
 ECF_ROOT_ROLE=${ECF_ROOT_ROLE:-/lfs/h2/emc/global/noscrub/emc.global/ecflow}
-EDATE=${EDATE:-2027011600}
-ICSDIR_DEFAULT=/lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime
-RUNTESTS="/lfs/h2/emc/stmp/${USER}/RUNTESTS"
 
-comroot="${RUNTESTS}/COMROOT"
-dataroot="${RUNTESTS}/RUNDIR"
-outputdir="${RUNTESTS}/OUTPUT"
-expdir="${RUNTESTS}/EXPDIR/rt17_ecflow_highres"
+config="${HOMEgfs}/dev/ci/cases/gfsv17/ecflow_rt_highres.yaml"
+comroot=""
+dataroot=""
+outputdir=""
+expdir=""
 expdir_src=""
-icsdir="${ICSDIR_DEFAULT}"
+icsdir=""
+edate=${EDATE:-}
+exp_net=""
+exp_mode=""
+exp_pslot=""
+exp_parent=""
+exp_app=""
+exp_resdetatmos=""
+exp_resensatmos=""
+exp_resdetocean=""
+exp_nens=""
+exp_interval=""
+exp_start=""
+exp_yaml=""
 pdy=""
 run_args=()
 first_cycle=""
-ncycles=1
+ncycles=""
+suite=""
 prev_pdy=""
 prev_cyc=""
 check_data=NO
@@ -126,6 +155,80 @@ root_from=""
 
 usage() {
   sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# Fill the values not given on the command line from the ECFRT_ variables (see
+# gfsv17_ecflow_rt_env.sh), and those from the config file
+load_config() {
+  local out line name value
+  if [[ ! -r "${config}" ]]; then
+    echo "ERROR: cannot read the config file ${config}" >&2
+    return 1
+  fi
+  if ! out=$(python3 "${SCRIPT_DIR}/gfsv17_ecflow_rt_config.py" "${config}" "${HOMEgfs}"); then
+    echo "ERROR: cannot parse ${config}; source dev/ush/gw_setup.sh first" >&2
+    return 1
+  fi
+  while IFS='=' read -r line value; do
+    name=${line^^}
+    name=ECFRT_${name//./_}
+    if [[ -z "${!name:-}" ]]; then
+      export "${name}=${value}"
+    fi
+  done <<< "${out}"
+  for name in $(compgen -v ECFRT_); do
+    value=${!name}
+    case "${name}" in
+      ECFRT_EXPERIMENT_NET) exp_net=${value} ;;
+      ECFRT_EXPERIMENT_MODE) exp_mode=${value} ;;
+      ECFRT_EXPERIMENT_PSLOT) exp_pslot=${value} ;;
+      ECFRT_EXPERIMENT_EXPDIR) exp_parent=${value} ;;
+      ECFRT_EXPERIMENT_APP) exp_app=${value} ;;
+      ECFRT_EXPERIMENT_RESDETATMOS) exp_resdetatmos=${value} ;;
+      ECFRT_EXPERIMENT_RESENSATMOS) exp_resensatmos=${value} ;;
+      ECFRT_EXPERIMENT_RESDETOCEAN) exp_resdetocean=${value} ;;
+      ECFRT_EXPERIMENT_NENS) exp_nens=${value} ;;
+      ECFRT_EXPERIMENT_INTERVAL) exp_interval=${value} ;;
+      ECFRT_EXPERIMENT_START) exp_start=${value} ;;
+      ECFRT_EXPERIMENT_YAML) exp_yaml=${value} ;;
+      ECFRT_EXPERIMENT_COMROOT) : "${comroot:=${value}}" ;;
+      ECFRT_EXPERIMENT_ICSDIR) : "${icsdir:=${value}}" ;;
+      ECFRT_EXPERIMENT_EDATE) : "${edate:=${value}}" ;;
+      ECFRT_ECFLOW_DATAROOT) : "${dataroot:=${value}}" ;;
+      ECFRT_ECFLOW_OUTPUTDIR) : "${outputdir:=${value}}" ;;
+      ECFRT_ECFLOW_NCYCLES) : "${ncycles:=${value}}" ;;
+      ECFRT_ECFLOW_SUITE) suite=${value} ;;
+      ECFRT_ECFLOW_SRC_COMROOT) export SRC_COMROOT=${SRC_COMROOT:-${value}} ;;
+      ECFRT_ECFLOW_HOST)
+        if [[ -z "${ecf_host}" ]]; then
+          ecf_host=${value}
+          host_from="ECFRT_ECFLOW_HOST or the config file"
+        fi
+        ;;
+      ECFRT_ECFLOW_PORT)
+        if [[ -z "${ecf_port}" ]]; then
+          ecf_port=${value}
+          port_from="ECFRT_ECFLOW_PORT or the config file"
+        fi
+        ;;
+      *) ;;
+    esac
+  done
+  if [[ -z "${expdir}" && -n "${exp_parent}" && -n "${exp_pslot}" ]]; then
+    expdir=${exp_parent}/${exp_pslot}
+  fi
+  : "${ncycles:=1}"
+  : "${suite:=gfs_v17_nco}"
+  local missing=()
+  for name in comroot dataroot outputdir expdir; do
+    if [[ -z "${!name}" ]]; then
+      missing+=("${name}")
+    fi
+  done
+  if ((${#missing[@]} > 0)); then
+    echo "ERROR: ${missing[*]} not set; give them as options or with --set" >&2
+    return 1
+  fi
 }
 
 # Print the commands that set up the ecflow server by hand
@@ -278,7 +381,6 @@ setup_ecf_scripts() {
 
 # Print the commands that start the cases once the setup is done
 print_start_instructions() {
-  local suite=gfs_v17_nco
   local fam="/${suite}/primary/${pdy}${first_cycle}"
   cat << EOF
 
@@ -295,7 +397,7 @@ After that the suite runs by itself: when the jgdas_fcst task of a cycle ends, i
 the family of the next cycle. To stop it: ecflow_client --suspend=/${suite}
 
 To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
-  nohup ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} -n ${ncycles} ${run_args[*]-} \\
+  nohup ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} -n ${ncycles} --suite ${suite} ${run_args[*]-} \\
     --comroot ${comroot} --dataroot ${dataroot} --outputdir ${outputdir} --expdir ${expdir} \\
     -d ${expdir}/gfs_dev.def > ${expdir}/run_cycles.log 2>&1 &
   tail -f ${expdir}/run_cycles.log
@@ -314,13 +416,14 @@ create_expdir() {
   fi
   mkdir -p "$(dirname "${expdir}")" || return 1
   PYTHONPATH="${HOMEgfs}/sorc/wxflow/src${PYTHONPATH:+:${PYTHONPATH}}" \
-    "${HOMEgfs}/dev/workflow/setup_expt.py" gfs cycled \
-    --pslot "$(basename "${expdir}")" --app S2SW \
-    --resdetatmos 1152 --resensatmos 384 --resdetocean 0.25 --nens 80 \
-    --interval 6 --start warm \
+    "${HOMEgfs}/dev/workflow/setup_expt.py" "${exp_net}" "${exp_mode}" \
+    --pslot "$(basename "${expdir}")" --app "${exp_app}" \
+    --resdetatmos "${exp_resdetatmos}" --resensatmos "${exp_resensatmos}" \
+    --resdetocean "${exp_resdetocean}" --nens "${exp_nens}" \
+    --interval "${exp_interval}" --start "${exp_start}" \
     --comroot "${comroot}" --expdir "$(dirname "${expdir}")" \
-    --idate "${pdy}${first_cycle}" --edate "${EDATE}" --icsdir "${icsdir}" \
-    --yaml "${HOMEgfs}/dev/ci/cases/gfsv17/s2sw_realtime.yaml" || return 1
+    --idate "${pdy}${first_cycle}" --edate "${edate}" --icsdir "${icsdir}" \
+    --yaml "${exp_yaml}" || return 1
   if [[ ! -f "${expdir}/config.base" ]]; then
     echo "ERROR: setup_expt.py did not create ${expdir}/config.base" >&2
     return 1
@@ -490,7 +593,7 @@ setup_all() {
     create_expdir || return 1
   fi
   setup_ecf_scripts || return 1
-  "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
+  "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --suite "${suite}" --packagehome "${HOMEgfs}" \
     --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
     --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || return 1
   echo "Setup done; the suite is not loaded on the ecflow server"
@@ -532,16 +635,39 @@ while (($# > 0)); do
       ecf_role=YES
       shift
       ;;
+    --pslot | --suite)
+      if (($# < 2)); then
+        echo "ERROR: $1 needs a value" >&2
+        exit 2
+      fi
+      if [[ "$1" == "--pslot" ]]; then
+        export ECFRT_EXPERIMENT_PSLOT=$2
+      else
+        export ECFRT_ECFLOW_SUITE=$2
+      fi
+      shift 2
+      ;;
+    --set)
+      if [[ "${2:-}" != *.*=* ]]; then
+        echo "ERROR: --set needs section.key=value, for example experiment.pslot=my_test" >&2
+        exit 2
+      fi
+      set_key=${2%%=*}
+      set_key=ECFRT_${set_key^^}
+      export "${set_key//./_}=${2#*=}"
+      shift 2
+      ;;
     -h | --help)
       usage
       exit 0
       ;;
-    --comroot | --dataroot | --outputdir | --expdir | --expdir-src | --icsdir | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
+    --config | --comroot | --dataroot | --outputdir | --expdir | --expdir-src | --icsdir | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
       if (($# < 2)); then
         echo "ERROR: $1 needs a value" >&2
         exit 2
       fi
       case "$1" in
+        --config) config=$2 ;;
         --comroot) comroot=$2 ;;
         --dataroot) dataroot=$2 ;;
         --outputdir) outputdir=$2 ;;
@@ -575,6 +701,8 @@ if [[ "${server_setup}${build_link}${check_data}${stage}${setup}" != *YES* ]]; t
   usage >&2
   exit 2
 fi
+
+load_config || exit 1
 
 if [[ -z "${ecf_host}" ]]; then
   case "$(hostname -s)" in

@@ -14,13 +14,14 @@
 #   4. Wait until each of the NCYCLES cycle families is complete, then suspend the suite.
 #
 # Usage: gfsv17_ecflow_rt_run_cycles.sh [-p PDY -c CYC] [-n NCYCLES] [-d DEF]
-#          [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--replace] [-h]
+#          [--suite NAME] [--comroot DIR] [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--replace] [-h]
 #   -p PDY          first cycle date (YYYYMMDD), requires -c
 #   -c CYC          first cycle hour (00, 06, 12 or 18), requires -p
 #   -n NCYCLES      number of cycles to wait for before suspending the suite (default 1);
 #                   DEF must have a family for each of them
 #   -d DEF          suite definition to load (default EXPDIR/gfs_dev.def, which the setup
 #                   script renders for -p/-c/-n; needs --expdir when -d is not given)
+#   --suite NAME    suite name in DEF (default the SUITE environment variable, then gfs_v17_nco)
 #   --comroot DIR   set COMROOT on /suite/primary; the stage script COMDIR becomes
 #                   DIR/gfs/v17.0 unless COMDIR is already set
 #   --dataroot DIR  set DATAROOT on /suite/primary
@@ -37,7 +38,7 @@
 # many hours, so start it with nohup or in a terminal multiplexer.
 #
 # Environment overrides:
-#   SUITE          suite name (default gfs_v17_nco)
+#   SUITE          suite name (default gfs_v17_nco); --suite overrides it
 #   POLL_SECONDS   seconds between completion checks (default 60)
 #   ECFLOW_CLIENT  ecflow client command (default ecflow_client)
 
@@ -102,7 +103,7 @@ while (($# > 0)); do
       replace=YES
       shift
       ;;
-    -p | -c | -n | -d | --comroot | --dataroot | --outputdir | --expdir)
+    -p | -c | -n | -d | --suite | --comroot | --dataroot | --outputdir | --expdir)
       if (($# < 2)); then
         echo "ERROR: $1 needs a value" >&2
         exit 2
@@ -112,6 +113,7 @@ while (($# > 0)); do
         -c) req_cyc=$2 ;;
         -n) ncycles=$2 ;;
         -d) DEF_FILE=$2 ;;
+        --suite) SUITE=$2 ;;
         --comroot) comroot=$2 ;;
         --dataroot) dataroot=$2 ;;
         --outputdir) outputdir=$2 ;;
