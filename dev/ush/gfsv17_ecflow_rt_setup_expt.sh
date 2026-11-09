@@ -34,13 +34,12 @@
 #      (ask first, -y does not ask). Then check that the ecflow server answers. If something
 #      is still missing, every problem is listed with the command that fixes it and nothing
 #      is created.
-#   1. If --expdir, --dataroot or --outputdir already exist, list them and ask
-#      whether to delete them (-y deletes them without asking). COMROOT is never deleted
-#      because it holds the staged data. When they are deleted,
-#      everything below is created from scratch and the run script replaces the suite
-#      on the ecflow server (as with --replace). When they are kept, only what is
-#      missing is created.
-#   2. Create COMROOT, DATAROOT and OUTPUTDIR.
+#   1. If --expdir (the pslot directory) already exists, ask whether to delete it (-y deletes
+#      it without asking). COMROOT, DATAROOT and OUTPUTDIR are never deleted because other
+#      experiments share them. When it is deleted, everything below is created from scratch
+#      and the run script replaces the suite on the ecflow server (as with --replace). When it
+#      is kept, only what is missing is created.
+#   2. Create COMROOT, DATAROOT and OUTPUTDIR if they do not exist.
 #   3. Create the high resolution experiment described in the experiment block of the config
 #      file in --expdir with
 #      dev/workflow/setup_expt.py, starting at the first cycle (-p, -c). COMROOT
@@ -89,7 +88,7 @@
 #   -n NCYCLES         number of cycles (families) in the suite; the suite stops by itself after
 #                      them (default ecflow.ncycles)
 #   -y, --yes          with --stage and --copy-config, do not ask; with --setup, delete the existing
-#                      EXPDIR, DATAROOT and OUTPUTDIR without asking
+#                      EXPDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository (as --copy-ecf) and have
 #                      the run script delete the suite on the ecflow server and load the new definition
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
@@ -542,37 +541,29 @@ copy_expdir() {
   echo "Copied ${src} to ${expdir}"
 }
 
-# Ask whether to delete the EXPDIR, DATAROOT and OUTPUTDIR that already exist,
-# so the setup starts from scratch; with -y they are deleted without asking
+# Ask whether to delete the EXPDIR (the pslot directory) when it already exists, so the setup
+# starts from scratch; with -y it is deleted without asking. COMROOT, DATAROOT and OUTPUTDIR are
+# shared by other experiments and are never deleted.
 clean_existing() {
-  local dir answer resolved
-  local existing=()
-  for dir in "${expdir}" "${dataroot}" "${outputdir}"; do
-    if [[ -e "${dir}" ]]; then
-      existing+=("${dir}")
-    fi
-  done
-  if ((${#existing[@]} == 0)); then
+  local resolved answer
+  if [[ ! -e "${expdir}" ]]; then
     return 0
   fi
-  for dir in "${existing[@]}"; do
-    resolved=$(realpath -m "${dir}")
-    # Refuse paths that are too close to the root or the home directory to be an experiment
-    if [[ "${resolved}" == "/" || "${resolved}" == "$(realpath -m "${HOME}")" || "${resolved}" =~ ^/[^/]+(/[^/]+)?$ ]]; then
-      echo "ERROR: refusing to delete ${dir}; give a dedicated experiment directory" >&2
-      return 1
-    fi
-    if [[ -n "${expdir_src}" && "$(realpath -m "${expdir_src}")/" == "${resolved}/"* ]]; then
-      echo "ERROR: --expdir-src ${expdir_src} is inside ${dir}, which would be deleted" >&2
-      return 1
-    fi
-  done
-  echo "These directories already exist:"
-  printf '  %s\n' "${existing[@]}"
+  resolved=$(realpath -m "${expdir}")
+  # Refuse paths that are too close to the root or the home directory to be an experiment
+  if [[ "${resolved}" == "/" || "${resolved}" == "$(realpath -m "${HOME}")" || "${resolved}" =~ ^/[^/]+(/[^/]+)?$ ]]; then
+    echo "ERROR: refusing to delete ${expdir}; give a dedicated experiment directory" >&2
+    return 1
+  fi
+  if [[ -n "${expdir_src}" && "$(realpath -m "${expdir_src}")/" == "${resolved}/"* ]]; then
+    echo "ERROR: --expdir-src ${expdir_src} is inside ${expdir}, which would be deleted" >&2
+    return 1
+  fi
+  echo "This directory already exists: ${expdir}"
   if [[ "${assume_yes}" == "YES" ]]; then
     answer=y
   elif [[ -t 0 ]]; then
-    read -r -p "Delete them and set up from scratch? [y/N]: " answer
+    read -r -p "Delete it and set up from scratch? [y/N]: " answer
   else
     echo "WARNING: not asked (no terminal) and -y not given; the existing files are kept"
     return 0
@@ -581,10 +572,8 @@ clean_existing() {
     echo "Keeping the existing files; only the missing ones are created"
     return 0
   fi
-  for dir in "${existing[@]}"; do
-    echo "Deleting ${dir}"
-    rm -rf "${dir}" || return 1
-  done
+  echo "Deleting ${expdir}"
+  rm -rf "${expdir}" || return 1
   # The suite on the ecflow server belongs to the deleted setup, so load the new one
   if [[ "${replace}" == "NO" ]]; then
     replace=YES
