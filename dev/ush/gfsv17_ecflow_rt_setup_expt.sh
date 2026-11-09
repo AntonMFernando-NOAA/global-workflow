@@ -160,20 +160,20 @@ find_running_server() {
   local info
   info=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "${ecf_host}" bash -s 2> /dev/null << 'EOF'
 for pid in $(pgrep -u "${USER}" ecflow_server); do
-  tr '\0' '\n' < "/proc/${pid}/environ" | grep -E '^(ECF_PORT|ECF_HOME)='
+  tr '\0' '\n' < "/proc/${pid}/environ" | grep -E '^(ECF_PORT|ECF_ROOT)='
   break
 done
 EOF
   )
-  local port home
+  local port root
   port=$(sed -n 's/^ECF_PORT=//p' <<< "${info}")
-  home=$(sed -n 's/^ECF_HOME=//p' <<< "${info}")
+  root=$(sed -n 's/^ECF_ROOT=//p' <<< "${info}")
   if [[ -n "${port}" && -z "${ecf_port}" ]]; then
     ecf_port=${port}
     port_from="your ecflow_server running on ${ecf_host}"
   fi
-  if [[ -n "${home}" && "${ecf_role}" == "NO" ]]; then
-    ecf_root=${home}
+  if [[ -n "${root}" && "${ecf_role}" == "NO" ]]; then
+    ecf_root=${root}
     root_from="your ecflow_server running on ${ecf_host}"
   fi
 }
@@ -199,7 +199,10 @@ setup_ecflow_server() {
     ecf_port=$(($(id -u) + 2000))
     port_from="default: your user id ($(id -u)) + 2000"
   fi
-  echo "ecflow server: host ${ecf_host} (${host_from}), port ${ecf_port} (${port_from}), ECF_ROOT ${ecf_root} (${root_from})"
+  echo "ecflow server:"
+  echo "  host     ${ecf_host} (${host_from})"
+  echo "  port     ${ecf_port} (${port_from})"
+  echo "  ECF_ROOT ${ecf_root} (${root_from})"
   if ecflow_client --host="${ecf_host}" --port="${ecf_port}" --ping; then
     echo "The ecflow server on ${ecf_host} port ${ecf_port} is already running"
     return 0
