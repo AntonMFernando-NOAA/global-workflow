@@ -4,7 +4,8 @@
 The rendered definition differs from gfs_prod.def as follows:
 
 * PACKAGEHOME, ENVIR, QUEUE, OUTPUTDIR and EXPDIR are set for the user, and
-  ECF_INCLUDE, DATAROOT and COMROOT are added.
+  ECF_INCLUDE, DATAROOT, COMROOT and ECF_JOB_CMD are added. ECF_JOB_CMD creates the
+  job output directory before it submits the job, whatever the server has set.
 * ECF_INCLUDE and every ECF_FILES point to <EXPDIR>/ecf.
 * The four cycle families 00, 06, 12 and 18 of gfs_prod.def are replaced by one
   family per cycle of the run, named by its PDYCYC (YYYYMMDDCC). With --first-pdy
@@ -30,6 +31,11 @@ from pathlib import Path
 
 CYCLE_HOURS = ('00', '06', '12', '18')
 DEFAULT_SRC = Path(__file__).resolve().parent.parent / 'ecf' / 'gfs' / 'defs' / 'gfs_prod.def'
+
+# Same command as the NCO ecflow server uses, so the job output directory exists before the job is submitted
+JOB_CMD = ('mkdir -p $(dirname %ECF_JOBOUT%); '
+           '/apps/ops/para/nco/core/ecflow.v5.6.0.15/scripts/ecfrunjob %ECF_JOB% %ECF_JOBOUT% '
+           '%MACHINE_SITE:development% %ENVIR:devel% %MACHINE_PHASE:p1% %OUTPUTDIR% > %ECF_JOBOUT%.submitlog 2>&1')
 
 CYCLE_FAMILY = re.compile(r"^    family (00|06|12|18)\s*$")
 CYCLE_FAMILY_END = re.compile(r"^    endfamily\b")
@@ -208,7 +214,8 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         'OUTPUTDIR': ["    edit ECF_INCLUDE '%EXPDIR%/ecf/include'",
                       f"    edit OUTPUTDIR '{outputdir}'",
                       f"    edit DATAROOT '{dataroot}'",
-                      f"    edit COMROOT '{comroot}'"],
+                      f"    edit COMROOT '{comroot}'",
+                      f"    edit ECF_JOB_CMD '{JOB_CMD}'"],
         'EXPDIR': [f"    edit EXPDIR '{expdir}'"],
     }
 
