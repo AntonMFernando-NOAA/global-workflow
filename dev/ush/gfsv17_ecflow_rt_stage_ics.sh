@@ -240,5 +240,4 @@ echo "PDY=${tpdy}"
 echo "CYC=${tcyc}"
 echo "PREV_PDY=${ppdy}"
 echo "PREV_CYC=${pcyc}"
-echo "To run the cycles: gfsv17_ecflow_rt_run_cycles.sh -p ${tpdy} -c ${tcyc} -n <number of cycles>"
 exit 0

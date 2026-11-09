@@ -27,6 +27,7 @@ ecflow:
   ncycles: 1
   # realtime comroot whose gdas/enkfgdas data start the first cycle
   src_comroot: /lfs/h2/emc/gfstemp/emc.global/comroot/retrov17_01_realtime
-  # Without these the host follows the login node and the port is found from your running server
-  # host: cdecflow02
-  # port: 34637
+  # host and port are user-specific: do not set them here. Instead export ECFRT_ECFLOW_HOST and
+  # ECFRT_ECFLOW_PORT (or use --ecf-host/--ecf-port, or ECF_HOST/ECF_PORT), which all take priority
+  # over this file. Without them the host follows the login node and the port is found from your
+  # running server.
