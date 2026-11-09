@@ -46,8 +46,9 @@
 #   --expdir-src DIR   copy this already rendered EXPDIR (or the one pslot directory in it)
 #                      to --expdir instead of creating the experiment
 #   --icsdir DIR       ICSDIR given to setup_expt.py (default /lfs/h2/emc/gfstemp/emc.global/comroot/rt17_upd03_realtime)
-#   -p PDY -c CYC      first cycle (required); also the start date of the experiment that is
-#                      created, and the first cycle the suite starts
+#   -p PDY -c CYC      first cycle; also the start date of the experiment that is created, and
+#                      the first cycle the suite starts. When both are omitted they are chosen
+#                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
 #   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
 #                      before it suspends the suite (default 1)
 #   --setup-only       create the directories and EXPDIR, do not run any cycle
@@ -367,8 +368,20 @@ while (($# > 0)); do
   esac
 done
 
+if [[ -z "${pdy}" && -z "${first_cycle}" ]]; then
+  # Same selection as the stage script: clock and ops date file, stepping back if data is missing
+  stage_out=$("${STAGE_SCRIPT}" -k) || {
+    echo "${stage_out}" >&2
+    echo "ERROR: could not select the first cycle automatically; give -p PDY -c CYC" >&2
+    exit 1
+  }
+  pdy=$(sed -n 's/^PDY=//p' <<< "${stage_out}")
+  first_cycle=$(sed -n 's/^CYC=//p' <<< "${stage_out}")
+  echo "Selected first cycle ${pdy}${first_cycle}"
+  run_args+=(-p "${pdy}" -c "${first_cycle}")
+fi
 if [[ ! "${pdy}" =~ ^[0-9]{8}$ || ! "${first_cycle}" =~ ^(00|06|12|18)$ ]]; then
-  echo "ERROR: give -p PDY (YYYYMMDD) and -c CYC (00, 06, 12 or 18), the first cycle to run" >&2
+  echo "ERROR: -p PDY (YYYYMMDD) and -c CYC (00, 06, 12 or 18) must be given together" >&2
   exit 2
 fi
 
