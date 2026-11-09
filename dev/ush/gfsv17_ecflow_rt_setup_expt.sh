@@ -18,6 +18,16 @@
 #                      directory is created and ICSDIR is not used.
 #   --setup            set up everything up to, but not including, loading the suite on the
 #                      ecflow server, in the steps below
+#   --copy-config      render the experiment config files again (or copy them again from
+#                      --expdir-src) over those in an existing EXPDIR, and keep its other files
+#                      (ecf, gfs_dev.def). It asks first, because your edits to the config files are
+#                      lost (-y does not ask). Alone it needs only the existing EXPDIR; with --setup
+#                      it does this in step 3 also when the config files already exist.
+#   --copy-ecf         copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf again and
+#                      rerun setup_ecf_links.sh there (use it after changing head.h, tail.h or a
+#                      .ecf file). Alone it needs only the existing EXPDIR; with --setup it does this
+#                      in step 4 also when <expdir>/ecf exists. The suite on the ecflow server
+#                      does not need to be loaded again: tasks read these files when they are submitted.
 #
 # Steps of --setup:
 #   0. Check that the executables are built and linked, that the data of the cycle are staged
@@ -35,12 +45,12 @@
 #      dev/workflow/setup_expt.py, starting at the first cycle (-p, -c). COMROOT
 #      and EXPDIR in its config.base are the ones given here. With --expdir-src a
 #      rendered EXPDIR is copied to --expdir instead. An existing --expdir that is
-#      kept in step 0 is not overwritten, so your edits are kept.
+#      kept in step 0 is not overwritten, so your edits are kept, unless --copy-config is given.
 #   4. Copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf and run
 #      setup_ecf_links.sh there, so the per forecast hour .ecf files are created
 #      outside the repository. The rendered definition reads ECF_FILES and ECF_INCLUDE from
-#      %EXPDIR%/ecf. An existing <expdir>/ecf is not overwritten unless --replace is
-#      given (use it after changing dev/ecf/gfs/include/head.h or tail.h).
+#      %EXPDIR%/ecf. An existing <expdir>/ecf is not overwritten unless --copy-ecf or --replace
+#      is given (use them after changing dev/ecf/gfs/include/head.h or tail.h).
 #   5. Render the suite definition from dev/ecf/gfs/defs/gfs_prod.def into
 #      <expdir>/gfs_dev.def (gfsv17_ecflow_rt_render_def.py), with the directories
 #      above. The definition has one family per cycle (-n of them), named by its PDYCYC:
@@ -51,7 +61,8 @@
 #      gfsv17_ecflow_rt_run_cycles.sh can do that.
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--ecf-server-setup] [--build-link] [--check-data] [--stage]
-#          [--setup] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--config FILE] [--pslot NAME] [--suite NAME] [--comroot DIR]
+#          [--setup] [--copy-config] [--copy-ecf] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--config FILE]
+#          [--pslot NAME] [--suite NAME] [--comroot DIR]
 #          [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
 #          [--ecf-host HOST] [--ecf-port PORT] [--ecf-users USER[,USER...]] [--set SECTION.KEY=VALUE] [-h]
 #   --config FILE      yaml file with the defaults of the options below and of the experiment
@@ -76,10 +87,10 @@
 #                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
 #   -n NCYCLES         number of cycles (families) in the suite; the suite stops by itself after
 #                      them (default ecflow.ncycles)
-#   -y, --yes          with --stage, do not ask; with --setup, delete the existing EXPDIR,
-#                      DATAROOT and OUTPUTDIR without asking
-#   --replace          start over: recreate <expdir>/ecf from the repository and have the run
-#                      script delete the suite on the ecflow server and load the new definition
+#   -y, --yes          with --stage and --copy-config, do not ask; with --setup, delete the existing
+#                      EXPDIR, DATAROOT and OUTPUTDIR without asking
+#   --replace          start over: recreate <expdir>/ecf from the repository (as --copy-ecf) and have
+#                      the run script delete the suite on the ecflow server and load the new definition
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
 #   --ecf-host HOST    ecflow server host (default ECF_HOST, then ecflow.host, otherwise
 #                      cdecflow02 on Cactus and ddecflow02 on Dogwood)
@@ -143,6 +154,8 @@ stage=NO
 setup=NO
 assume_yes=NO
 replace=NO
+copy_config=NO
+copy_ecf=NO
 build_link=NO
 server_setup=NO
 ecf_role=NO
@@ -360,22 +373,41 @@ build_and_link() {
   )
 }
 
-# Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there
+# Ask a yes/no question; -y answers yes, and without a terminal the answer is no
+confirm() {
+  local answer
+  if [[ "${assume_yes}" == "YES" ]]; then
+    return 0
+  elif [[ -t 0 ]]; then
+    read -r -p "$1 [y/N]: " answer
+    [[ "${answer}" =~ ^[Yy]([Ee][Ss])?$ ]]
+  else
+    echo "WARNING: not asked (no terminal) and -y not given; answering no" >&2
+    return 1
+  fi
+}
+
+# Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there.
+# They are made in <expdir>/ecf.new and moved into place, so a loaded suite never sees a half made ecf
 setup_ecf_scripts() {
-  local ecf_dir=${expdir}/ecf
-  if [[ "${replace}" == "NO" && -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
+  local ecf_dir=${expdir}/ecf new_dir=${expdir}/ecf.new old_dir=${expdir}/ecf.old
+  if [[ "${replace}" == "NO" && "${copy_ecf}" == "NO" && -d "${ecf_dir}/scripts" && -d "${ecf_dir}/include" ]]; then
     echo "${ecf_dir} already exists; not overwritten"
     return 0
   fi
-  rm -rf "${ecf_dir}"
-  mkdir -p "${ecf_dir}" || return 1
-  cp -a "${HOMEgfs}/dev/ecf/gfs/scripts" "${HOMEgfs}/dev/ecf/gfs/include" "${ecf_dir}/" || return 1
-  if ! (cd "${ecf_dir}" && bash "${HOMEgfs}/dev/ecf/gfs/setup_ecf_links.sh") > "${ecf_dir}/setup_ecf_links.log" 2>&1; then
-    echo "ERROR: setup_ecf_links.sh failed; see ${ecf_dir}/setup_ecf_links.log" >&2
-    tail -n 20 "${ecf_dir}/setup_ecf_links.log" >&2
-    rm -rf "${ecf_dir}"
+  rm -rf "${new_dir}" "${old_dir}"
+  mkdir -p "${new_dir}" || return 1
+  cp -a "${HOMEgfs}/dev/ecf/gfs/scripts" "${HOMEgfs}/dev/ecf/gfs/include" "${new_dir}/" || return 1
+  if ! (cd "${new_dir}" && bash "${HOMEgfs}/dev/ecf/gfs/setup_ecf_links.sh") > "${new_dir}/setup_ecf_links.log" 2>&1; then
+    echo "ERROR: setup_ecf_links.sh failed; the log is ${new_dir}/setup_ecf_links.log" >&2
+    tail -n 20 "${new_dir}/setup_ecf_links.log" >&2
     return 1
   fi
+  if [[ -d "${ecf_dir}" ]]; then
+    mv "${ecf_dir}" "${old_dir}" || return 1
+  fi
+  mv "${new_dir}" "${ecf_dir}" || return 1
+  rm -rf "${old_dir}"
   echo "Created ${ecf_dir}"
 }
 
@@ -401,26 +433,75 @@ To let a script do all of this (the suite stops by itself after ${ncycles} cycle
 EOF
 }
 
-# Create the high resolution experiment in ${expdir} unless it already exists
+# Run setup_expt.py for the experiment $1 with its EXPDIR in the directory $2 and the start date $3 (YYYYMMDDHH)
+run_setup_expt() {
+  mkdir -p "$2" || return 1
+  PYTHONPATH="${HOMEgfs}/sorc/wxflow/src${PYTHONPATH:+:${PYTHONPATH}}" \
+    "${HOMEgfs}/dev/workflow/setup_expt.py" "${exp_net}" "${exp_mode}" \
+    --pslot "$1" --app "${exp_app}" \
+    --resdetatmos "${exp_resdetatmos}" --resensatmos "${exp_resensatmos}" \
+    --resdetocean "${exp_resdetocean}" --nens "${exp_nens}" \
+    --interval "${exp_interval}" --start "${exp_start}" \
+    --comroot "${comroot}" --expdir "$2" \
+    --idate "$3" --edate "${edate}" --icsdir "${icsdir}" \
+    --yaml "${exp_yaml}"
+}
+
+# Render the config files again in a scratch experiment with another pslot, then copy them over those
+# in EXPDIR. setup_expt.py never runs on the existing EXPDIR because it would delete it with its ROTDIR.
+# The start date is -p/-c, otherwise the SDATE of the existing config.base.
+refresh_config() {
+  local pslot parent tmp_pslot idate out
+  pslot=$(basename "${expdir}")
+  parent=$(dirname "${expdir}")
+  tmp_pslot=${pslot}_copycfg_$$
+  if [[ -n "${pdy}" && -n "${first_cycle}" ]]; then
+    idate=${pdy}${first_cycle}
+  else
+    idate=$(sed -n 's/^export SDATE="\([0-9]\{10\}\)".*/\1/p' "${expdir}/config.base")
+  fi
+  if [[ ! "${idate}" =~ ^[0-9]{10}$ ]]; then
+    echo "ERROR: no start date: give -p PDY -c CYC; SDATE was not found in ${expdir}/config.base" >&2
+    return 1
+  fi
+  if ! out=$(run_setup_expt "${tmp_pslot}" "${parent}" "${idate}" 2>&1); then
+    echo "${out}" >&2
+    echo "ERROR: setup_expt.py failed; the config files in ${expdir} are unchanged" >&2
+    rm -rf "${parent:?}/${tmp_pslot:?}"
+    rmdir "${comroot}/${tmp_pslot}" 2> /dev/null
+    return 1
+  fi
+  grep -rlI -- "${tmp_pslot}" "${parent}/${tmp_pslot}" | xargs -r sed -i "s#${tmp_pslot}#${pslot}#g"
+  cp -a "${parent}/${tmp_pslot}/." "${expdir}/"
+  local status=$?
+  rm -rf "${parent:?}/${tmp_pslot:?}"
+  rmdir "${comroot}/${tmp_pslot}" 2> /dev/null
+  if ((status != 0)); then
+    echo "ERROR: cannot copy the rendered config files to ${expdir}" >&2
+    return 1
+  fi
+  echo "Rendered the config files again in ${expdir} for the start ${idate}"
+}
+
+# Create the high resolution experiment in ${expdir}; with --copy-config render its config files again
 create_expdir() {
   if [[ -f "${expdir}/config.base" ]]; then
-    echo "EXPDIR ${expdir} already exists; not overwritten"
-    return 0
+    if [[ "${copy_config}" == "NO" ]]; then
+      echo "EXPDIR ${expdir} already exists; not overwritten"
+      return 0
+    fi
+    if ! confirm "Render the config files again over those in ${expdir} (your edits to them are lost)?"; then
+      echo "Keeping the config files in ${expdir}"
+      return 0
+    fi
+    refresh_config
+    return
   fi
   if [[ -z "${pdy}" || -z "${first_cycle}" ]]; then
     echo "ERROR: give -p PDY -c CYC (the experiment start) or --expdir-src DIR" >&2
     return 1
   fi
-  mkdir -p "$(dirname "${expdir}")" || return 1
-  PYTHONPATH="${HOMEgfs}/sorc/wxflow/src${PYTHONPATH:+:${PYTHONPATH}}" \
-    "${HOMEgfs}/dev/workflow/setup_expt.py" "${exp_net}" "${exp_mode}" \
-    --pslot "$(basename "${expdir}")" --app "${exp_app}" \
-    --resdetatmos "${exp_resdetatmos}" --resensatmos "${exp_resensatmos}" \
-    --resdetocean "${exp_resdetocean}" --nens "${exp_nens}" \
-    --interval "${exp_interval}" --start "${exp_start}" \
-    --comroot "${comroot}" --expdir "$(dirname "${expdir}")" \
-    --idate "${pdy}${first_cycle}" --edate "${edate}" --icsdir "${icsdir}" \
-    --yaml "${exp_yaml}" || return 1
+  run_setup_expt "$(basename "${expdir}")" "$(dirname "${expdir}")" "${pdy}${first_cycle}" || return 1
   if [[ ! -f "${expdir}/config.base" ]]; then
     echo "ERROR: setup_expt.py did not create ${expdir}/config.base" >&2
     return 1
@@ -428,7 +509,7 @@ create_expdir() {
   echo "Created ${expdir}"
 }
 
-# Copy the rendered EXPDIR unless the destination already has one
+# Copy the rendered EXPDIR; when the destination already has one, only with --copy-config
 copy_expdir() {
   local src=${expdir_src} sub
   if [[ ! -f "${src}/config.base" ]]; then
@@ -445,8 +526,14 @@ copy_expdir() {
     return 1
   fi
   if [[ -f "${expdir}/config.base" ]]; then
-    echo "EXPDIR ${expdir} already exists; not overwritten"
-    return 0
+    if [[ "${copy_config}" == "NO" ]]; then
+      echo "EXPDIR ${expdir} already exists; not overwritten"
+      return 0
+    fi
+    if ! confirm "Copy ${src} over the config files in ${expdir} (your edits to them are lost)?"; then
+      echo "Keeping the config files in ${expdir}"
+      return 0
+    fi
   fi
   mkdir -p "${expdir}" || return 1
   cp -r "${src}/." "${expdir}/" || return 1
@@ -578,6 +665,25 @@ check_prerequisites() {
   fi
 }
 
+# Copy the config files and/or the ecf files again into an existing EXPDIR (--copy-config, --copy-ecf without --setup)
+recopy_expdir() {
+  if [[ ! -f "${expdir}/config.base" ]]; then
+    echo "ERROR: ${expdir} has no config.base; create it first with --setup" >&2
+    return 1
+  fi
+  if [[ "${copy_config}" == "YES" ]]; then
+    if [[ -n "${expdir_src}" ]]; then
+      copy_expdir || return 1
+    else
+      create_expdir || return 1
+    fi
+  fi
+  if [[ "${copy_ecf}" == "YES" ]]; then
+    setup_ecf_scripts || return 1
+    echo "Tasks submitted from now on use the new ecf files; the suite on the ecflow server is not reloaded"
+  fi
+}
+
 # Create everything up to loading the suite on the ecflow server
 setup_all() {
   select_cycle || return 1
@@ -609,6 +715,14 @@ while (($# > 0)); do
       ;;
     --setup)
       setup=YES
+      shift
+      ;;
+    --copy-config)
+      copy_config=YES
+      shift
+      ;;
+    --copy-ecf)
+      copy_ecf=YES
       shift
       ;;
     -y | --yes)
@@ -694,7 +808,7 @@ while (($# > 0)); do
   esac
 done
 
-if [[ "${server_setup}${build_link}${check_data}${stage}${setup}" != *YES* ]]; then
+if [[ "${server_setup}${build_link}${check_data}${stage}${setup}${copy_config}${copy_ecf}" != *YES* ]]; then
   usage >&2
   exit 2
 fi
@@ -728,4 +842,6 @@ fi
 
 if [[ "${setup}" == "YES" ]]; then
   setup_all || exit 1
+elif [[ "${copy_config}${copy_ecf}" == *YES* ]]; then
+  recopy_expdir || exit 1
 fi
