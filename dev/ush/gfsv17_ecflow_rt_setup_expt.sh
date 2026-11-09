@@ -20,14 +20,14 @@
 #                      ecflow server, in the steps below
 #   --copy-config      render the experiment config files again (or copy them again from
 #                      --expdir-src) over those in an existing EXPDIR, and keep its other files
-#                      (ecf, gfs_dev.def). It asks first, because your edits to the config files are
-#                      lost (-y does not ask). Alone it needs only the existing EXPDIR; with --setup
-#                      it does this in step 3 also when the config files already exist.
+#                      (ecf, gfs_dev.def). Requires --expdir. It asks first, because your edits 
+#                      to the config files are lost (-y does not ask). With --setup it does this 
+#                      in step 3 also when the config files already exist.
 #   --copy-ecf         copy dev/ecf/gfs/scripts and dev/ecf/gfs/include to <expdir>/ecf again and
 #                      rerun setup_ecf_links.sh there (use it after changing head.h, tail.h or a
-#                      .ecf file). Alone it needs only the existing EXPDIR; with --setup it does this
-#                      in step 4 also when <expdir>/ecf exists. The suite on the ecflow server
-#                      does not need to be loaded again: tasks read these files when they are submitted.
+#                      .ecf file). Requires --expdir. With --setup it does this in step 4 also 
+#                      when <expdir>/ecf exists. The suite on the ecflow server does not need to 
+#                      be loaded again: tasks read these files when they are submitted.
 #
 # Steps of --setup:
 #   0. Check that the executables are built and linked, that the data of the cycle are staged
@@ -158,6 +158,7 @@ copy_config=NO
 copy_ecf=NO
 build_link=NO
 server_setup=NO
+expdir_explicit=NO
 ecf_role=NO
 ecf_host=${ECF_HOST:-}
 ecf_port=${ECF_PORT:-}
@@ -667,6 +668,10 @@ check_prerequisites() {
 
 # Copy the config files and/or the ecf files again into an existing EXPDIR (--copy-config, --copy-ecf without --setup)
 recopy_expdir() {
+  if [[ "${expdir_explicit}" != "YES" && "${copy_config}${copy_ecf}" == *YES* ]]; then
+    echo "ERROR: --copy-config or --copy-ecf requires explicit --expdir to specify which experiment to update" >&2
+    return 1
+  fi
   if [[ ! -f "${expdir}/config.base" ]]; then
     echo "ERROR: ${expdir} has no config.base; create it first with --setup" >&2
     return 1
@@ -782,7 +787,10 @@ while (($# > 0)); do
         --comroot) comroot=$2 ;;
         --dataroot) dataroot=$2 ;;
         --outputdir) outputdir=$2 ;;
-        --expdir) expdir=$2 ;;
+        --expdir)
+          expdir=$2
+          expdir_explicit=YES
+          ;;
         --expdir-src) expdir_src=$2 ;;
         --icsdir) icsdir=$2 ;;
         -p) pdy=$2 ;;
