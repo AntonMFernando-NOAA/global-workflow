@@ -30,9 +30,10 @@
 #                      be loaded again: tasks read these files when they are submitted.
 #
 # Steps of --setup:
-#   0. Check that the executables are built and linked, that the data of the cycle are staged
-#      and that the ecflow server answers. If one is not, every problem is listed with the
-#      command that fixes it and nothing is created.
+#   0. Check that the data of the cycle are staged; when they are not, do what --stage does
+#      (ask first, -y does not ask). Then check that the ecflow server answers. If something
+#      is still missing, every problem is listed with the command that fixes it and nothing
+#      is created.
 #   1. If --expdir, --dataroot or --outputdir already exist, list them and ask
 #      whether to delete them (-y deletes them without asking). COMROOT is never deleted
 #      because it holds the staged data. When they are deleted,
@@ -611,10 +612,25 @@ select_cycle() {
   prev_cyc=$(sed -n 's/^PREV_CYC=//p' <<< "${out}")
 }
 
+# Return 0 when the previous cycle data or syndat are missing from COMDIR
+data_missing() {
+  local comdir=${COMDIR:-${comroot}/gfs/v17.0} run
+  for run in gdas enkfgdas; do
+    [[ -e "${comdir}/${run}.${prev_pdy}/${prev_cyc}" ]] || return 0
+  done
+  [[ -d "${comdir}/syndat" ]] || return 0
+  return 1
+}
+
 # Check the data, then ask whether to link them into COMDIR and copy syndat
 stage_data() {
-  local answer
   select_cycle || return 1
+  link_data
+}
+
+# Ask whether to link the data of the selected cycle into COMDIR and copy syndat
+link_data() {
+  local answer
   if [[ "${assume_yes}" == "YES" ]]; then
     answer=y
   elif [[ -t 0 ]]; then
@@ -686,6 +702,9 @@ recopy_expdir() {
 # Create everything up to loading the suite on the ecflow server
 setup_all() {
   select_cycle || return 1
+  if data_missing; then
+    link_data || return 1
+  fi
   check_prerequisites || return 1
   clean_existing || return 1
   mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || return 1
