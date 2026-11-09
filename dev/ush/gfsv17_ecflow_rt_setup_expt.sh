@@ -48,7 +48,7 @@
 #      2026110712. There is no cycle_end task: the tail.h of the jgdas_fcst task of a
 #      cycle resumes the family of the next cycle. It is rendered again on every run.
 #   6. Print the commands that load the suite and start the cycles; the run script
-#      gfsv17_ecflow_rt_run_cycles.sh can do that and wait for the cycles.
+#      gfsv17_ecflow_rt_run_cycles.sh can do that.
 #
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--ecf-server-setup] [--build-link] [--check-data] [--stage]
 #          [--setup] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--config FILE] [--pslot NAME] [--suite NAME] [--comroot DIR]
@@ -74,8 +74,8 @@
 #   -p PDY -c CYC      first cycle; also the start date of the experiment that is created, and
 #                      the first cycle the suite starts. When both are omitted they are chosen
 #                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
-#   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
-#                      before it suspends the suite (default ecflow.ncycles)
+#   -n NCYCLES         number of cycles (families) in the suite; the suite stops by itself after
+#                      them (default ecflow.ncycles)
 #   -y, --yes          with --stage, do not ask; with --setup, delete the existing EXPDIR,
 #                      DATAROOT and OUTPUTDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
@@ -396,11 +396,8 @@ Check it with: ecflow_client --query state ${fam}   (or ecflow_ui)
 After that the suite runs by itself: when the jgdas_fcst task of a cycle ends, its tail.h resumes
 the family of the next cycle. To stop it: ecflow_client --suspend=/${suite}
 
-To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
-  nohup ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} -n ${ncycles} --suite ${suite} ${run_args[*]-} \\
-    --comroot ${comroot} --dataroot ${dataroot} --outputdir ${outputdir} --expdir ${expdir} \\
-    -d ${expdir}/gfs_dev.def > ${expdir}/run_cycles.log 2>&1 &
-  tail -f ${expdir}/run_cycles.log
+To let a script do all of this (the suite stops by itself after ${ncycles} cycle(s)):
+  ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} --suite ${suite} ${run_args[*]-} -d ${expdir}/gfs_dev.def
 EOF
 }
 
