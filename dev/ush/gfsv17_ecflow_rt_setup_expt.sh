@@ -1,15 +1,30 @@
 #!/usr/bin/env bash
 #
-# Set up a GFSv17 ecflow realtime experiment and optionally run its cycles.
+# Set up a GFSv17 ecflow realtime experiment in separate steps. Each of these options does
+# only its own step; when several are given they run in this order. With none, this help
+# is shown.
 #
-# Steps:
-#   0. If --expdir, --comroot, --dataroot or --outputdir already exist, list them and ask
-#      whether to delete them (-y deletes them without asking). When they are deleted,
+#   --ecf-server-setup (re)start the ecflow server on ECF_HOST over ssh (first time use, or
+#                      when the role account server needs a restart)
+#   --build-link       run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
+#   --check-data       tell whether the previous cycle gdas/enkfgdas data exist for the cycle
+#                      -p/-c, or for the current cycle when they are omitted
+#   --stage            do the --check-data check, then ask whether to link gdas/enkfgdas into
+#                      <comroot>/gfs/v17.0 and copy syndat there (-y does not ask). No other
+#                      directory is created and ICSDIR is not used.
+#   --setup            set up everything up to, but not including, loading the suite on the
+#                      ecflow server, in the steps below
+#
+# Steps of --setup:
+#   0. Check that the executables are built and linked, that the data of the cycle are staged
+#      and that the ecflow server answers. If one is not, every problem is listed with the
+#      command that fixes it and nothing is created.
+#   1. If --expdir, --dataroot or --outputdir already exist, list them and ask
+#      whether to delete them (-y deletes them without asking). COMROOT is never deleted
+#      because it holds the staged data. When they are deleted,
 #      everything below is created from scratch and the run script replaces the suite
 #      on the ecflow server (as with --replace). When they are kept, only what is
 #      missing is created.
-#   1. With --ecf-server-setup: (re)start the ecflow server on ECF_HOST over ssh
-#      (first time use, or when the role account server needs a restart).
 #   2. Create COMROOT, DATAROOT and OUTPUTDIR.
 #   3. Create the high resolution experiment (C1152 atmosphere, 0.25 degree ocean,
 #      80 members, the retrov17_realtime.yaml configuration) in --expdir with
@@ -28,16 +43,13 @@
 #      -p 20261106 -c 12 -n 5 gives 2026110612, 2026110618, 2026110700, 2026110706 and
 #      2026110712. There is no cycle_end task: the tail.h of the jgdas_fcst task of a
 #      cycle resumes the family of the next cycle. It is rendered again on every run.
-#   6. Unless --setup-only is given, run gfsv17_ecflow_rt_run_cycles.sh, which runs
-#      gfsv17_ecflow_rt_stage_ics.sh (links gdas/enkfgdas into <comroot>/gfs/v17.0 and
-#      copies syndat) and then the requested cycles. With --setup-only and -p/-c, the
-#      stage script is run here and no cycle is started.
+#   6. Print the commands that load the suite and start the cycles; the run script
+#      gfsv17_ecflow_rt_run_cycles.sh can do that and wait for the cycles.
 #
-# Usage: gfsv17_ecflow_rt_setup_expt.sh [--build-link] [--comroot DIR] [--dataroot DIR]
-#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [-p PDY -c CYC] [-n NCYCLES]
-#          [--setup-only] [-y] [--replace] [--ecf-server-setup] [--ecf-role] [--ecf-host HOST]
-#          [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
-#   --build-link       first run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
+# Usage: gfsv17_ecflow_rt_setup_expt.sh [--ecf-server-setup] [--build-link] [--check-data] [--stage]
+#          [--setup] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--comroot DIR] [--dataroot DIR]
+#          [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
+#          [--ecf-host HOST] [--ecf-port PORT] [--ecf-users USER[,USER...]] [-h]
 #   --comroot DIR      COMROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/COMROOT)
 #   --dataroot DIR     DATAROOT (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/RUNDIR)
 #   --outputdir DIR    OUTPUTDIR (default /lfs/h2/emc/stmp/${USER}/RUNTESTS/OUTPUT)
@@ -51,11 +63,10 @@
 #                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
 #   -n NCYCLES         number of cycles (families) in the suite; the run script waits for them
 #                      before it suspends the suite (default 1)
-#   --setup-only       create the directories and EXPDIR, do not run any cycle
-#   -y, --yes          delete the existing EXPDIR, COMROOT, DATAROOT and OUTPUTDIR without asking
+#   -y, --yes          with --stage, do not ask; with --setup, delete the existing EXPDIR,
+#                      DATAROOT and OUTPUTDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository and have the run
 #                      script delete the suite on the ecflow server and load the new definition
-#   --ecf-server-setup run the ecflow server steps on ECF_HOST first
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
 #   --ecf-host HOST    ecflow server host (default ECF_HOST, e.g. cdecflow02 or ddecflow02)
 #   --ecf-port PORT    ecflow server port (default id -u + 2000)
@@ -90,7 +101,11 @@ pdy=""
 run_args=()
 first_cycle=""
 ncycles=1
-setup_only=NO
+prev_pdy=""
+prev_cyc=""
+check_data=NO
+stage=NO
+setup=NO
 assume_yes=NO
 replace=NO
 build_link=NO
@@ -191,7 +206,7 @@ After that the suite runs by itself: when the jgdas_fcst task of a cycle ends, i
 the family of the next cycle. To stop it: ecflow_client --suspend=/${suite}
 
 To let a script do all of this, wait for ${ncycles} cycle(s) and suspend the suite:
-  nohup ${RUN_SCRIPT} ${run_args[*]-} \\
+  nohup ${RUN_SCRIPT} -p ${pdy} -c ${first_cycle} -n ${ncycles} ${run_args[*]-} \\
     --comroot ${comroot} --dataroot ${dataroot} --outputdir ${outputdir} --expdir ${expdir} \\
     -d ${expdir}/gfs_dev.def > ${expdir}/run_cycles.log 2>&1 &
   tail -f ${expdir}/run_cycles.log
@@ -249,12 +264,12 @@ copy_expdir() {
   echo "Copied ${src} to ${expdir}"
 }
 
-# Ask whether to delete the EXPDIR, COMROOT, DATAROOT and OUTPUTDIR that already exist,
+# Ask whether to delete the EXPDIR, DATAROOT and OUTPUTDIR that already exist,
 # so the setup starts from scratch; with -y they are deleted without asking
 clean_existing() {
   local dir answer resolved
   local existing=()
-  for dir in "${expdir}" "${comroot}" "${dataroot}" "${outputdir}"; do
+  for dir in "${expdir}" "${dataroot}" "${outputdir}"; do
     if [[ -e "${dir}" ]]; then
       existing+=("${dir}")
     fi
@@ -299,10 +314,112 @@ clean_existing() {
   fi
 }
 
+# Run the stage script in check mode for -p/-c, or for the current cycle when they are not given;
+# sets pdy, first_cycle, prev_pdy and prev_cyc
+select_cycle() {
+  local args=() out rc
+  if [[ -n "${pdy}" || -n "${first_cycle}" ]]; then
+    args=(-p "${pdy}" -c "${first_cycle}")
+  fi
+  out=$("${STAGE_SCRIPT}" -k ${args[@]+"${args[@]}"})
+  rc=$?
+  echo "${out}"
+  if ((rc != 0)); then
+    echo "ERROR: no usable cycle; use --check-data or give -p PDY -c CYC" >&2
+    return "${rc}"
+  fi
+  pdy=$(sed -n 's/^PDY=//p' <<< "${out}")
+  first_cycle=$(sed -n 's/^CYC=//p' <<< "${out}")
+  prev_pdy=$(sed -n 's/^PREV_PDY=//p' <<< "${out}")
+  prev_cyc=$(sed -n 's/^PREV_CYC=//p' <<< "${out}")
+}
+
+# Check the data, then ask whether to link them into COMDIR and copy syndat
+stage_data() {
+  local answer
+  select_cycle || return 1
+  if [[ "${assume_yes}" == "YES" ]]; then
+    answer=y
+  elif [[ -t 0 ]]; then
+    read -r -p "Create the links and copy syndat in ${COMDIR:-${comroot}/gfs/v17.0}? [y/N]: " answer
+  else
+    echo "ERROR: no terminal to ask; use -y to stage without asking" >&2
+    return 1
+  fi
+  if [[ ! "${answer}" =~ ^[Yy]([Ee][Ss])?$ ]]; then
+    echo "Nothing staged"
+    return 0
+  fi
+  COMDIR=${COMDIR:-${comroot}/gfs/v17.0} "${STAGE_SCRIPT}" -p "${pdy}" -c "${first_cycle}"
+}
+
+# List what is not ready for --setup, with the command that fixes each; return 1 if anything
+check_prerequisites() {
+  local problems=() exe run
+  local comdir=${COMDIR:-${comroot}/gfs/v17.0}
+  local port=${ecf_port:-$(($(id -u) + 2000))}
+  for exe in gfs_model.x gsi.x gdas.x; do
+    if [[ ! -x "${HOMEgfs}/exec/${exe}" ]]; then
+      problems+=("${HOMEgfs}/exec/${exe} is missing: run ${0} --build-link")
+      break
+    fi
+  done
+  for run in gdas enkfgdas; do
+    if [[ ! -e "${comdir}/${run}.${prev_pdy}/${prev_cyc}" ]]; then
+      problems+=("${comdir}/${run}.${prev_pdy}/${prev_cyc} is missing: run ${0} --stage -p ${pdy} -c ${first_cycle}")
+    fi
+  done
+  if [[ ! -d "${comdir}/syndat" ]]; then
+    problems+=("${comdir}/syndat is missing: run ${0} --stage -p ${pdy} -c ${first_cycle}")
+  fi
+  if command -v module > /dev/null 2>&1; then
+    module load ecflow
+  fi
+  if ! command -v ecflow_client > /dev/null 2>&1; then
+    problems+=("ecflow_client is not found: module load ecflow")
+  elif [[ -z "${ecf_host}" ]]; then
+    problems+=("the ecflow server host is not set: give --ecf-host HOST or set ECF_HOST")
+  elif ! ECF_HOST=${ecf_host} ECF_PORT=${port} ecflow_client --ping > /dev/null 2>&1; then
+    problems+=("the ecflow server ${ecf_host} port ${port} does not answer: run ${0} --ecf-server-setup --ecf-host ${ecf_host}")
+  fi
+  if ((${#problems[@]} > 0)); then
+    echo "ERROR: the setup cannot start yet:" >&2
+    printf '  - %s\n' "${problems[@]}" >&2
+    return 1
+  fi
+}
+
+# Create everything up to loading the suite on the ecflow server
+setup_all() {
+  select_cycle || return 1
+  check_prerequisites || return 1
+  clean_existing || return 1
+  mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || return 1
+  if [[ -n "${expdir_src}" ]]; then
+    copy_expdir || return 1
+  else
+    create_expdir || return 1
+  fi
+  setup_ecf_scripts || return 1
+  "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
+    --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
+    --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || return 1
+  echo "Setup done; the suite is not loaded on the ecflow server"
+  print_start_instructions
+}
+
 while (($# > 0)); do
   case "$1" in
-    --setup-only)
-      setup_only=YES
+    --check-data)
+      check_data=YES
+      shift
+      ;;
+    --stage)
+      stage=YES
+      shift
+      ;;
+    --setup)
+      setup=YES
       shift
       ;;
     -y | --yes)
@@ -342,21 +459,12 @@ while (($# > 0)); do
         --expdir) expdir=$2 ;;
         --expdir-src) expdir_src=$2 ;;
         --icsdir) icsdir=$2 ;;
-        -p)
-          pdy=$2
-          run_args+=("$1" "$2")
-          ;;
+        -p) pdy=$2 ;;
         --ecf-host) ecf_host=$2 ;;
         --ecf-port) ecf_port=$2 ;;
         --ecf-users) ecf_users=$2 ;;
-        -c)
-          first_cycle=$2
-          run_args+=("$1" "$2")
-          ;;
-        -n)
-          ncycles=$2
-          run_args+=("$1" "$2")
-          ;;
+        -c) first_cycle=$2 ;;
+        -n) ncycles=$2 ;;
         *) run_args+=("$1" "$2") ;;
       esac
       shift 2
@@ -368,24 +476,10 @@ while (($# > 0)); do
   esac
 done
 
-if [[ -z "${pdy}" && -z "${first_cycle}" ]]; then
-  # Same selection as the stage script: clock and ops date file, stepping back if data is missing
-  stage_out=$("${STAGE_SCRIPT}" -k) || {
-    echo "${stage_out}" >&2
-    echo "ERROR: could not select the first cycle automatically; give -p PDY -c CYC" >&2
-    exit 1
-  }
-  pdy=$(sed -n 's/^PDY=//p' <<< "${stage_out}")
-  first_cycle=$(sed -n 's/^CYC=//p' <<< "${stage_out}")
-  echo "Selected first cycle ${pdy}${first_cycle}"
-  run_args+=(-p "${pdy}" -c "${first_cycle}")
-fi
-if [[ ! "${pdy}" =~ ^[0-9]{8}$ || ! "${first_cycle}" =~ ^(00|06|12|18)$ ]]; then
-  echo "ERROR: -p PDY (YYYYMMDD) and -c CYC (00, 06, 12 or 18) must be given together" >&2
+if [[ "${server_setup}${build_link}${check_data}${stage}${setup}" != *YES* ]]; then
+  usage >&2
   exit 2
 fi
-
-clean_existing || exit 1
 
 if [[ "${server_setup}" == "YES" ]]; then
   setup_ecflow_server || exit 1
@@ -395,32 +489,14 @@ if [[ "${build_link}" == "YES" ]]; then
   build_and_link || exit 1
 fi
 
-mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || exit 1
-if [[ -n "${expdir_src}" ]]; then
-  copy_expdir || exit 1
-else
-  create_expdir || exit 1
-fi
-setup_ecf_scripts || exit 1
-"${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --packagehome "${HOMEgfs}" \
-  --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
-  --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || exit 1
-
-if [[ "${setup_only}" == "YES" ]]; then
-  # The run script stages the initial conditions otherwise
-  COMDIR=${COMDIR:-${comroot}/gfs/v17.0} "${STAGE_SCRIPT}" -p "${pdy}" -c "${first_cycle}" || exit 1
-  echo "Setup done; not running any cycle"
-  print_start_instructions
-  exit 0
+if [[ "${check_data}" == "YES" ]]; then
+  select_cycle || exit 1
 fi
 
-if command -v module > /dev/null 2>&1; then
-  module load ecflow
+if [[ "${stage}" == "YES" ]]; then
+  stage_data || exit 1
 fi
-if [[ -n "${ecf_host}" ]]; then
-  export ECF_HOST=${ecf_host}
+
+if [[ "${setup}" == "YES" ]]; then
+  setup_all || exit 1
 fi
-export ECF_PORT=${ecf_port:-$(($(id -u) + 2000))}
-exec "${RUN_SCRIPT}" ${run_args[@]+"${run_args[@]}"} \
-  --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
-  -d "${expdir}/gfs_dev.def"
