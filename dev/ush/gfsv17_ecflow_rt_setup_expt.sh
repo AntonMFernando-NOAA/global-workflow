@@ -4,8 +4,12 @@
 # only its own step; when several are given they run in this order. With none, this help
 # is shown.
 #
-#   --ecf-server-setup ping the ecflow server on ECF_HOST; only if it does not answer, set it
-#                      up over ssh and ping it again
+#   --ecf-server-setup find your ecflow server and ping it; only if it does not answer, set it
+#                      up over ssh and ping it again. You do not need to know the values:
+#                      the host follows the login node, the port and ECF_ROOT are read from
+#                      your ecflow_server running on that host (default port id -u + 2000,
+#                      default ECF_ROOT ${HOME}/ecflow), and each one is printed with where
+#                      it came from
 #   --build-link       run "sorc/build_all.sh gfs gdas gsi" and "sorc/link_workflow.sh"
 #   --check-data       tell whether the previous cycle gdas/enkfgdas data exist for the cycle
 #                      -p/-c, or for the current cycle when they are omitted
@@ -70,7 +74,8 @@
 #   --ecf-role         use the role account ECF_ROOT instead of ${HOME}/ecflow
 #   --ecf-host HOST    ecflow server host (default ECF_HOST, otherwise cdecflow02 on Cactus
 #                      and ddecflow02 on Dogwood)
-#   --ecf-port PORT    ecflow server port (default id -u + 2000)
+#   --ecf-port PORT    ecflow server port (default ECF_PORT, otherwise the port of your running
+#                      server on the host, otherwise id -u + 2000)
 #   --ecf-users LIST   users to add to the server access list after the restart
 #   -h                 show this help
 #
@@ -113,34 +118,96 @@ build_link=NO
 server_setup=NO
 ecf_role=NO
 ecf_host=${ECF_HOST:-}
-ecf_port=""
+ecf_port=${ECF_PORT:-}
 ecf_users=""
+host_from="ECF_HOST"
+port_from="ECF_PORT"
+root_from=""
 
 usage() {
   sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
+# Print the commands that set up the ecflow server by hand
+print_server_instructions() {
+  local ecf_root=$1
+  cat >&2 << EOF
+
+The values used above:
+  host     ${ecf_host}: ${host_from}
+  port     ${ecf_port}: ${port_from}
+  ECF_ROOT ${ecf_root}: ${root_from}
+To see your servers on the host: ssh ${ecf_host} pgrep -u ${USER} -a ecflow_server
+Their logs are named <host>.<port>.ecf.log in ECF_ROOT.
+
+To set up the ecflow server by hand:
+  ssh ${ecf_host}
+  module load ecflow
+  export ECF_ROOT=${ecf_root} ECF_HOST=${ecf_host} ECF_PORT=${ecf_port}
+  export ECF_OUTPUTDIR=\${ECF_ROOT}/output LFS_OUTPUTDIR=\${ECF_ROOT}/submit ECF_COMDIR=\${ECF_ROOT}/com
+  mkdir -p \${ECF_OUTPUTDIR} \${LFS_OUTPUTDIR} \${ECF_COMDIR}
+  server_check.sh \${ECF_ROOT}
+  ecflow_client --restart
+  exit
+Then check it from the login node:
+  ecflow_client --host=${ecf_host} --port=${ecf_port} --ping
+If the server runs on another port, give it with --ecf-port.
+EOF
+}
+
+# Set ecf_port and ecf_root from the user's running ecflow_server on ecf_host, if there is one
+find_running_server() {
+  local info
+  info=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "${ecf_host}" bash -s 2> /dev/null << 'EOF'
+for pid in $(pgrep -u "${USER}" ecflow_server); do
+  tr '\0' '\n' < "/proc/${pid}/environ" | grep -E '^(ECF_PORT|ECF_HOME)='
+  break
+done
+EOF
+  )
+  local port home
+  port=$(sed -n 's/^ECF_PORT=//p' <<< "${info}")
+  home=$(sed -n 's/^ECF_HOME=//p' <<< "${info}")
+  if [[ -n "${port}" && -z "${ecf_port}" ]]; then
+    ecf_port=${port}
+    port_from="your ecflow_server running on ${ecf_host}"
+  fi
+  if [[ -n "${home}" && "${ecf_role}" == "NO" ]]; then
+    ecf_root=${home}
+    root_from="your ecflow_server running on ${ecf_host}"
+  fi
+}
+
 # Run the ecflow server steps on the server host
 setup_ecflow_server() {
   local ecf_root=${HOME}/ecflow
+  root_from="default \${HOME}/ecflow"
   if [[ "${ecf_role}" == "YES" ]]; then
     ecf_root=${ECF_ROOT_ROLE}
+    root_from="--ecf-role (ECF_ROOT_ROLE)"
   fi
   if [[ -z "${ecf_host}" ]]; then
-    echo "ERROR: --ecf-server-setup needs --ecf-host or ECF_HOST" >&2
+    echo "ERROR: the ecflow server host is unknown on $(hostname -s); give --ecf-host HOST" >&2
+    echo "       (cdecflow02 on Cactus, ddecflow02 on Dogwood)" >&2
     return 1
   fi
-  : "${ecf_port:=$(($(id -u) + 2000))}"
   if command -v module > /dev/null 2>&1; then
     module load ecflow
   fi
+  find_running_server
+  if [[ -z "${ecf_port}" ]]; then
+    ecf_port=$(($(id -u) + 2000))
+    port_from="default: your user id ($(id -u)) + 2000"
+  fi
+  echo "ecflow server: host ${ecf_host} (${host_from}), port ${ecf_port} (${port_from}), ECF_ROOT ${ecf_root} (${root_from})"
   if ecflow_client --host="${ecf_host}" --port="${ecf_port}" --ping; then
     echo "The ecflow server on ${ecf_host} port ${ecf_port} is already running"
     return 0
   fi
+  echo "The ecflow server on ${ecf_host} port ${ecf_port} does not answer"
   echo "Setting up the ecflow server on ${ecf_host} port ${ecf_port} with ECF_ROOT ${ecf_root}"
 
-  ssh "${ecf_host}" env \
+  if ! ssh "${ecf_host}" env \
     "ECF_ROOT=${ecf_root}" "ECF_HOST=${ecf_host}" "ECF_PORT=${ecf_port}" "ECF_USERS=${ecf_users}" \
     bash -l -s << 'EOF'
 set -eu
@@ -165,8 +232,14 @@ if [[ -n "${ECF_USERS}" ]]; then
   ecflow_client --reloadwsfile
 fi
 EOF
+  then
+    echo "ERROR: the ecflow server setup on ${ecf_host} failed" >&2
+    print_server_instructions "${ecf_root}"
+    return 1
+  fi
   if ! ecflow_client --host="${ecf_host}" --port="${ecf_port}" --ping; then
     echo "ERROR: the ecflow server on ${ecf_host} port ${ecf_port} does not answer after the setup" >&2
+    print_server_instructions "${ecf_root}"
     return 1
   fi
   echo "The ecflow server on ${ecf_host} port ${ecf_port} is running"
@@ -473,8 +546,14 @@ while (($# > 0)); do
         --expdir-src) expdir_src=$2 ;;
         --icsdir) icsdir=$2 ;;
         -p) pdy=$2 ;;
-        --ecf-host) ecf_host=$2 ;;
-        --ecf-port) ecf_port=$2 ;;
+        --ecf-host)
+          ecf_host=$2
+          host_from="--ecf-host"
+          ;;
+        --ecf-port)
+          ecf_port=$2
+          port_from="--ecf-port"
+          ;;
         --ecf-users) ecf_users=$2 ;;
         -c) first_cycle=$2 ;;
         -n) ncycles=$2 ;;
@@ -500,6 +579,7 @@ if [[ -z "${ecf_host}" ]]; then
     d*) ecf_host=ddecflow02 ;;
     *) ;;
   esac
+  host_from="default for the login node $(hostname -s)"
 fi
 
 if [[ "${server_setup}" == "YES" ]]; then
