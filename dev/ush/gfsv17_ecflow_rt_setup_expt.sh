@@ -632,15 +632,9 @@ stage_data() {
 
 # List what is not ready for --setup, with the command that fixes each; return 1 if anything
 check_prerequisites() {
-  local problems=() exe run
+  local problems=() run
   local comdir=${COMDIR:-${comroot}/gfs/v17.0}
   local port=${ecf_port:-$(($(id -u) + 2000))}
-  for exe in gfs_model.x gsi.x gdas.x; do
-    if [[ ! -x "${HOMEgfs}/exec/${exe}" ]]; then
-      problems+=("${HOMEgfs}/exec/${exe} is missing: run ${0} --build-link")
-      break
-    fi
-  done
   for run in gdas enkfgdas; do
     if [[ ! -e "${comdir}/${run}.${prev_pdy}/${prev_cyc}" ]]; then
       problems+=("${comdir}/${run}.${prev_pdy}/${prev_cyc} is missing: run ${0} --stage -p ${pdy} -c ${first_cycle}")
