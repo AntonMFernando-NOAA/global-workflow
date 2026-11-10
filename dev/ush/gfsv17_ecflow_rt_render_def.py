@@ -4,7 +4,7 @@
 The rendered definition differs from gfs_prod.def as follows:
 
 * PACKAGEHOME, ENVIR, QUEUE, OUTPUTDIR and EXPDIR are set for the user, and
-  ECF_INCLUDE, DATAROOT and COMROOT are added.
+  ECF_INCLUDE, ECF_HOME, ECF_OUT, DATAROOT and COMROOT are added.
 * ECF_INCLUDE and every ECF_FILES point to <EXPDIR>/ecf.
 * The four cycle families 00, 06, 12 and 18 of gfs_prod.def are replaced by one
   family per cycle of the run, named by its PDYCYC (YYYYMMDDCC). With --first-pdy
@@ -166,7 +166,7 @@ def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
     return out, n_ecf_files, n_fcst
 
 
-def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, first_cycle, ncycles):
+def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, expdir, first_pdy, first_cycle, ncycles):
     """Apply the development changes to the lines of gfs_prod.def.
 
     Parameters
@@ -181,6 +181,10 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         DATAROOT of the experiment.
     outputdir : str
         OUTPUTDIR of the experiment.
+    ecf_home : str
+        ECF_HOME; ecflow writes the job files (.job1) below it.
+    ecf_out : str
+        ECF_OUT; ecflow looks for the job output below it.
     expdir : str
         EXPDIR of the experiment; the ecf scripts and include files are
         read from <expdir>/ecf.
@@ -206,6 +210,8 @@ def render(lines, packagehome, comroot, dataroot, outputdir, expdir, first_pdy, 
         'ENVIR': ["    edit ENVIR 'para'"],
         'QUEUE': ["    edit QUEUE 'dev'"],
         'OUTPUTDIR': ["    edit ECF_INCLUDE '%EXPDIR%/ecf/include'",
+                      f"    edit ECF_HOME '{ecf_home}'",
+                      f"    edit ECF_OUT '{ecf_out}'",
                       f"    edit OUTPUTDIR '{outputdir}'",
                       f"    edit DATAROOT '{dataroot}'",
                       f"    edit COMROOT '{comroot}'"],
@@ -302,6 +308,8 @@ def input_args():
     parser.add_argument('--comroot', required=True, help='COMROOT')
     parser.add_argument('--dataroot', required=True, help='DATAROOT')
     parser.add_argument('--outputdir', required=True, help='OUTPUTDIR')
+    parser.add_argument('--ecf-home', required=True, help='ECF_HOME, where ecflow writes the job files')
+    parser.add_argument('--ecf-out', required=True, help='ECF_OUT, where ecflow looks for the job output')
     parser.add_argument('--expdir', required=True, help='EXPDIR')
     parser.add_argument('--first-pdy', required=True, help='date (YYYYMMDD) of the first cycle')
     parser.add_argument('--first-cycle', choices=CYCLE_HOURS, required=True, help='hour of the first cycle')
@@ -325,8 +333,8 @@ def main():
         return 2
     lines = args.src.read_text().splitlines()
     try:
-        out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.expdir,
-                     args.first_pdy, args.first_cycle, args.ncycles)
+        out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.ecf_home,
+                     args.ecf_out, args.expdir, args.first_pdy, args.first_cycle, args.ncycles)
         out = rename_suite(out, args.suite)
     except ValueError as err:
         print(f"ERROR: cannot render {args.src}: {err}", file=sys.stderr)

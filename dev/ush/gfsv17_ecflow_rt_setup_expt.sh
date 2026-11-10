@@ -63,7 +63,7 @@
 # Usage: gfsv17_ecflow_rt_setup_expt.sh [--ecf-server-setup] [--build-link] [--check-data] [--stage]
 #          [--setup] [--copy-config] [--copy-ecf] [-p PDY -c CYC] [-n NCYCLES] [-y] [--replace] [--config FILE]
 #          [--pslot NAME] [--suite NAME] [--comroot DIR]
-#          [--dataroot DIR] [--outputdir DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
+#          [--dataroot DIR] [--outputdir DIR] [--ecf-home DIR] [--ecf-out DIR] [--expdir DIR] [--expdir-src DIR] [--icsdir DIR] [--ecf-role]
 #          [--ecf-host HOST] [--ecf-port PORT] [--ecf-users USER[,USER...]] [--set SECTION.KEY=VALUE] [-h]
 #   --config FILE      yaml file with the defaults of the options below and of the experiment
 #                      (default dev/ci/cases/gfsv17/ecflow_rt_highres.yaml, which is not meant to be
@@ -77,6 +77,8 @@
 #   --comroot DIR      COMROOT (default experiment.comroot)
 #   --dataroot DIR     DATAROOT (default ecflow.dataroot)
 #   --outputdir DIR    OUTPUTDIR (default ecflow.outputdir)
+#   --ecf-home DIR     ECF_HOME, where ecflow writes the job files (default ecflow.ecf_home)
+#   --ecf-out DIR      ECF_OUT, where the job output goes (default ecflow.ecf_out)
 #   --expdir DIR       experiment directory to create; its name is the pslot
 #                      (default experiment.expdir/experiment.pslot)
 #   --expdir-src DIR   copy this already rendered EXPDIR (or the one pslot directory in it)
@@ -126,6 +128,8 @@ config="${HOMEgfs}/dev/ci/cases/gfsv17/ecflow_rt_highres.yaml"
 comroot=""
 dataroot=""
 outputdir=""
+ecf_home=""
+ecf_out=""
 expdir=""
 expdir_src=""
 icsdir=""
@@ -210,6 +214,8 @@ load_config() {
       ECFRT_EXPERIMENT_EDATE) : "${edate:=${value}}" ;;
       ECFRT_ECFLOW_DATAROOT) : "${dataroot:=${value}}" ;;
       ECFRT_ECFLOW_OUTPUTDIR) : "${outputdir:=${value}}" ;;
+      ECFRT_ECFLOW_ECF_HOME) : "${ecf_home:=${value}}" ;;
+      ECFRT_ECFLOW_ECF_OUT) : "${ecf_out:=${value}}" ;;
       ECFRT_ECFLOW_NCYCLES) : "${ncycles:=${value}}" ;;
       ECFRT_ECFLOW_SUITE) suite=${value} ;;
       ECFRT_ECFLOW_SRC_COMROOT) export SRC_COMROOT=${SRC_COMROOT:-${value}} ;;
@@ -234,7 +240,7 @@ load_config() {
   : "${ncycles:=1}"
   : "${suite:=gfs_v17_nco}"
   local missing=()
-  for name in comroot dataroot outputdir expdir; do
+  for name in comroot dataroot outputdir ecf_home ecf_out expdir; do
     if [[ -z "${!name}" ]]; then
       missing+=("${name}")
     fi
@@ -690,7 +696,7 @@ setup_all() {
   fi
   check_prerequisites || return 1
   clean_existing || return 1
-  mkdir -p "${comroot}" "${dataroot}" "${outputdir}" || return 1
+  mkdir -p "${comroot}" "${dataroot}" "${outputdir}" "${ecf_home}" "${ecf_out}" || return 1
   if [[ -n "${expdir_src}" ]]; then
     copy_expdir || return 1
   else
@@ -698,7 +704,8 @@ setup_all() {
   fi
   setup_ecf_scripts || return 1
   "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --suite "${suite}" --packagehome "${HOMEgfs}" \
-    --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" --expdir "${expdir}" \
+    --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" \
+    --ecf-home "${ecf_home}" --ecf-out "${ecf_out}" --expdir "${expdir}" \
     --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || return 1
   echo "Setup done; the suite is not loaded on the ecflow server"
   print_start_instructions
@@ -773,7 +780,7 @@ while (($# > 0)); do
       usage
       exit 0
       ;;
-    --config | --comroot | --dataroot | --outputdir | --expdir | --expdir-src | --icsdir | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
+    --config | --comroot | --dataroot | --outputdir | --ecf-home | --ecf-out | --expdir | --expdir-src | --icsdir | --ecf-host | --ecf-port | --ecf-users | -p | -c | -n)
       if (($# < 2)); then
         echo "ERROR: $1 needs a value" >&2
         exit 2
@@ -783,6 +790,8 @@ while (($# > 0)); do
         --comroot) comroot=$2 ;;
         --dataroot) dataroot=$2 ;;
         --outputdir) outputdir=$2 ;;
+        --ecf-home) ecf_home=$2 ;;
+        --ecf-out) ecf_out=$2 ;;
         --expdir)
           expdir=$2
           expdir_explicit=YES

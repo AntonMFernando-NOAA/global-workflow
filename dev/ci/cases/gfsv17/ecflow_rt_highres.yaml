@@ -24,6 +24,9 @@ ecflow:
   suite: gfs_v17_nco
   dataroot: {{ runtests }}/RUNDIR
   outputdir: {{ runtests }}/OUTPUT
+  # ecflow writes the job files (.job1) under ecf_home and the job output under ecf_out
+  ecf_home: {{ runtests }}/ECF_HOME
+  ecf_out: {{ runtests }}/ECF_OUT
   ncycles: 1
   # realtime comroot whose gdas/enkfgdas data start the first cycle
   src_comroot: /lfs/h2/emc/gfstemp/emc.global/comroot/retrov17_01_realtime
