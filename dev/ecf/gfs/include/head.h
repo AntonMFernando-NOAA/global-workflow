@@ -65,7 +65,8 @@ if [ -n "%EXPDIR:%" ]; then export EXPDIR="%EXPDIR:%"; fi
 
 if [ -d /apps/ops/prod ]; then # On WCOSS2
   set +x
-  if [ $(whoami) == ops.para ]; then
+  # The ecflow version of the para server is only in the para modules; developers need it too
+  if [ $(whoami) != ops.prod ]; then
     module use -a /apps/ops/para/nco/modulefiles/core
   fi
   echo "Running module load ecflow/$ecflow_ver"
