@@ -26,6 +26,7 @@ if (( $# != 1 )); then
     echo "waveinit waveprep wavepostgridded wavepostbndpnt wavepostbndpntbll wavepostpnt"
     echo "wavegempak waveawipsbulls waveawipsgridded"
     echo "postsnd awips gempak npoess"
+    echo "marineobsdump marineobsbufrdump"
     echo "marineanlinit prepoceanobs marinebmatinit marinebmat marineanlvar marineanlecen marineanalletkf marineanlchkpt marineanlfinal ocnanalvrfy"
     exit 1
 
@@ -493,6 +494,22 @@ case ${step} in
     threads_per_task=1
     tasks_per_node=$(( max_tasks_per_node / threads_per_task ))
     memory="13072M"
+    ;;
+
+  "marineobsdump")
+    walltime="00:20:00"
+    ntasks=20
+    threads_per_task=2
+    tasks_per_node=${max_tasks_per_node}
+    memory="96GB"
+    ;;
+
+  "marineobsbufrdump")
+    walltime="00:10:00"
+    ntasks=1
+    threads_per_task=1
+    tasks_per_node=${max_tasks_per_node}
+    memory="32GB"
     ;;
 
   "marineanlinit")
