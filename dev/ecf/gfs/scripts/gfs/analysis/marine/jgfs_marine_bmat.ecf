@@ -26,7 +26,7 @@ module list
 export HOMEglobal=${HOMEgfs}
 
 #### ${HOMEgfs}/dev/job_cards/rocoto/marinebmat.sh
-${HOMEgfs}/jobs/JGLOBAL_MARINE_BMAT
+${HOMEgfs}/dev/jobs/JGLOBAL_MARINE_BMAT
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

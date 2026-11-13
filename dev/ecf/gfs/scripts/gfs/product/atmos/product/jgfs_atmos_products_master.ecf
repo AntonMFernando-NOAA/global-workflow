@@ -30,7 +30,7 @@ export COMPONENT=${WGF}
 ############################################################
 export HOMEglobal=${HOMEgfs}
 
-${HOMEgfs}/jobs/JGLOBAL_ATMOS_PRODUCTS
+${HOMEgfs}/dev/jobs/JGLOBAL_ATMOS_PRODUCTS
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

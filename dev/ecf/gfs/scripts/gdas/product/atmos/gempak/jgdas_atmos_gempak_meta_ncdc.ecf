@@ -26,7 +26,7 @@ module list
 export HOMEglobal=${HOMEgfs}
 
 #### ${HOMEgfs}/dev/job_cards/rocoto/gempakmetancdc.sh
-${HOMEgfs}/jobs/JGDAS_ATMOS_GEMPAK_META_NCDC
+${HOMEgfs}/dev/jobs/JGDAS_ATMOS_GEMPAK_META_NCDC
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

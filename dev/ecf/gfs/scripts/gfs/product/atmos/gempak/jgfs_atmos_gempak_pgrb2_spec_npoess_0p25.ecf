@@ -25,7 +25,7 @@ module list
 ############################################################
 export HOMEglobal=${HOMEgfs}
 
-${HOMEgfs}/jobs/JGFS_ATMOS_GEMPAK_PGRB2_SPEC_NPOESS
+${HOMEgfs}/dev/jobs/JGFS_ATMOS_GEMPAK_PGRB2_SPEC_NPOESS
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

@@ -28,7 +28,7 @@ export FORECAST_HOUR='0'
 export FHR3='000'
 export UPP_RUN='analysis'
 
-${HOMEgfs}/jobs/JGLOBAL_ATMOS_UPP
+${HOMEgfs}/dev/jobs/JGLOBAL_ATMOS_UPP
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

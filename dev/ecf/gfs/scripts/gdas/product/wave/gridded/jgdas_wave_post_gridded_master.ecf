@@ -31,7 +31,7 @@ export HOMEglobal=${HOMEgfs}
 export COMPONENT=${WGF}
 
 #### ${HOMEgfs}/dev/job_cards/rocoto/wavepostsbs.sh
-${HOMEgfs}/jobs/JGLOBAL_WAVE_POST_GRIDDED
+${HOMEgfs}/dev/jobs/JGLOBAL_WAVE_POST_GRIDDED
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort

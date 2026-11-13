@@ -25,7 +25,7 @@ module list
 ############################################################
 export HOMEglobal=${HOMEgfs}
 
-${HOMEgfs}/jobs/JGFS_WAVE_AWIPS_BULLS
+${HOMEgfs}/dev/jobs/JGFS_WAVE_AWIPS_BULLS
 if [ $? -ne 0 ]; then
    ecflow_client --msg="***JOB ${ECF_NAME} ERROR RUNNING J-SCRIPT ***"
    ecflow_client --abort
