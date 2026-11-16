@@ -89,6 +89,24 @@
 #                      as gfsv17_ecflow_rt_stage_ics.sh does (clock and ops date file)
 #   -n NCYCLES         number of cycles (families) in the suite; the suite stops by itself after
 #                      them (default ecflow.ncycles)
+#   ecflow.marine_stage=YES (config file, --set or ECFRT_ECFLOW_MARINE_STAGE)
+#                      for a GDASApp without the marine jobs: in the first cycle every marine task
+#                      (marine families, jenkfgdas_marine_ens_recenter) is replaced by a NAME_stage
+#                      task that copies analysis/ocean and analysis/ice from SRC_COMROOT (gdas, gfs
+#                      and the enkfgdas members). The ecf scripts of these tasks are made from
+#                      dev/ecf/gfs/stage/marine_stage.ecf by --setup, --copy-ecf and --replace.
+#                      The later cycles run the real marine tasks. Set NO once GDASApp is updated.
+#   ecflow.prep_anal_stage=YES (config file, --set or ECFRT_ECFLOW_PREP_ANAL_STAGE)
+#                      in the first cycle every task of the prep and analysis families (not the
+#                      marine ones) of gdas, gfs and enkfgdas is replaced by a NAME_stage task that
+#                      copies obs, analysis/atmos and analysis/snow (of the ensemble mean and
+#                      members for enkfgdas) from SRC_COMROOT. The ecf scripts of these tasks are
+#                      made from dev/ecf/gfs/stage/prep_anal_stage.ecf by --setup, --copy-ecf and
+#                      --replace. The later cycles run the real tasks. With NO (default) the
+#                      regular prep and analysis tasks run.
+#   ecflow.stage_mode=YES (config file, --set or ECFRT_ECFLOW_STAGE_MODE)
+#                      stage mode: turns on every stage option, marine_stage and prep_anal_stage.
+#                      An option that is YES stays on when stage_mode is NO.
 #   -y, --yes          with --stage and --copy-config, do not ask; with --setup, delete the existing
 #                      EXPDIR without asking
 #   --replace          start over: recreate <expdir>/ecf from the repository (as --copy-ecf) and have
@@ -121,6 +139,11 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RUN_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_run_cycles.sh"
 STAGE_SCRIPT="${SCRIPT_DIR}/gfsv17_ecflow_rt_stage_ics.sh"
+# Tasks (and ecf scripts) with this in their name get a first cycle stage task with marine_stage
+STAGE_PATTERN=marine
+# Tasks of the prep and analysis families, but not the marine ones, get a first cycle stage task with
+# prep_anal_stage
+PREP_ANAL_STAGE_PATTERN="tropcy_qc|prep_sfc|atmos_anal|snow_anal|upp_anal|atmos_ens_|snow_ens_anal"
 HOMEgfs=$(cd "${SCRIPT_DIR}/../.." && pwd)
 ECF_ROOT_ROLE=${ECF_ROOT_ROLE:-/lfs/h2/emc/global/noscrub/emc.global/ecflow}
 
@@ -150,6 +173,9 @@ pdy=""
 run_args=()
 first_cycle=""
 ncycles=""
+marine_stage=""
+prep_anal_stage=""
+stage_mode=""
 suite=""
 prev_pdy=""
 prev_cyc=""
@@ -217,6 +243,27 @@ load_config() {
       ECFRT_ECFLOW_ECF_HOME) : "${ecf_home:=${value}}" ;;
       ECFRT_ECFLOW_ECF_OUT) : "${ecf_out:=${value}}" ;;
       ECFRT_ECFLOW_NCYCLES) : "${ncycles:=${value}}" ;;
+      ECFRT_ECFLOW_MARINE_STAGE)
+        # YAML reads an unquoted YES as true
+        case "${value^^}" in
+          YES | TRUE) : "${marine_stage:=YES}" ;;
+          *) : "${marine_stage:=NO}" ;;
+        esac
+        ;;
+      ECFRT_ECFLOW_PREP_ANAL_STAGE)
+        # YAML reads an unquoted YES as true
+        case "${value^^}" in
+          YES | TRUE) : "${prep_anal_stage:=YES}" ;;
+          *) : "${prep_anal_stage:=NO}" ;;
+        esac
+        ;;
+      ECFRT_ECFLOW_STAGE_MODE)
+        # YAML reads an unquoted YES as true
+        case "${value^^}" in
+          YES | TRUE) stage_mode=YES ;;
+          *) stage_mode=NO ;;
+        esac
+        ;;
       ECFRT_ECFLOW_SUITE) suite=${value} ;;
       ECFRT_ECFLOW_SRC_COMROOT) export SRC_COMROOT=${SRC_COMROOT:-${value}} ;;
       ECFRT_ECFLOW_HOST)
@@ -238,6 +285,12 @@ load_config() {
     expdir=${exp_parent}/${exp_pslot}
   fi
   : "${ncycles:=1}"
+  : "${marine_stage:=NO}"
+  : "${prep_anal_stage:=NO}"
+  if [[ "${stage_mode}" == "YES" ]]; then
+    marine_stage=YES
+    prep_anal_stage=YES
+  fi
   : "${suite:=gfs_v17_nco}"
   local missing=()
   for name in comroot dataroot outputdir ecf_home ecf_out expdir; do
@@ -394,6 +447,25 @@ confirm() {
   fi
 }
 
+# Make NAME_stage.ecf from the stage template ${3} next to every ecf script of a task of the suite
+# definition whose name matches the expression ${2} (the tasks the renderer renames with
+# --stage-tasks); ${1} is the scripts directory and ${4} says what the scripts are for
+make_stage_scripts() {
+  local script name count=0
+  while read -r script; do
+    name=$(basename "${script}" .ecf)
+    [[ "${name}" =~ ${2} ]] || continue
+    grep -q "^ *task ${name} *$" "${HOMEgfs}/dev/ecf/gfs/defs/gfs_prod.def" || continue
+    cp "${HOMEgfs}/dev/ecf/gfs/stage/${3}" "${script%.ecf}_stage.ecf" || return 1
+    count=$((count + 1))
+  done < <(find "${1}" -name "*.ecf")
+  if ((count == 0)); then
+    echo "ERROR: no ${4} ecf script under ${1}" >&2
+    return 1
+  fi
+  echo "Made ${count} ${4} stage scripts"
+}
+
 # Copy the ecf scripts and include files to the EXPDIR and create the per forecast hour files there.
 # They are made in <expdir>/ecf.new and moved into place, so a loaded suite never sees a half made ecf
 setup_ecf_scripts() {
@@ -409,6 +481,12 @@ setup_ecf_scripts() {
     echo "ERROR: setup_ecf_links.sh failed; the log is ${new_dir}/setup_ecf_links.log" >&2
     tail -n 20 "${new_dir}/setup_ecf_links.log" >&2
     return 1
+  fi
+  if [[ "${marine_stage}" == "YES" ]]; then
+    make_stage_scripts "${new_dir}/scripts" "${STAGE_PATTERN}" marine_stage.ecf marine || return 1
+  fi
+  if [[ "${prep_anal_stage}" == "YES" ]]; then
+    make_stage_scripts "${new_dir}/scripts" "${PREP_ANAL_STAGE_PATTERN}" prep_anal_stage.ecf "prep and analysis" || return 1
   fi
   if [[ -d "${ecf_dir}" ]]; then
     mv "${ecf_dir}" "${old_dir}" || return 1
@@ -702,11 +780,26 @@ setup_all() {
   else
     create_expdir || return 1
   fi
+  if [[ ("${marine_stage}" == "YES" || "${prep_anal_stage}" == "YES") && -z "${SRC_COMROOT:-}" ]]; then
+    echo "ERROR: the stage options need ecflow.src_comroot (or SRC_COMROOT): the stage tasks copy from it" >&2
+    return 1
+  fi
   setup_ecf_scripts || return 1
+  local -a render_args=()
+  local -a stage_patterns=()
+  if [[ "${marine_stage}" == "YES" ]]; then
+    stage_patterns+=("${STAGE_PATTERN}")
+  fi
+  if [[ "${prep_anal_stage}" == "YES" ]]; then
+    stage_patterns+=("${PREP_ANAL_STAGE_PATTERN}")
+  fi
+  if ((${#stage_patterns[@]} > 0)); then
+    render_args+=(--stage-tasks "$(IFS='|' && echo "${stage_patterns[*]}")" --stage-src-comroot "${SRC_COMROOT}")
+  fi
   "${SCRIPT_DIR}/gfsv17_ecflow_rt_render_def.py" --out "${expdir}/gfs_dev.def" --suite "${suite}" --packagehome "${HOMEgfs}" \
     --comroot "${comroot}" --dataroot "${dataroot}" --outputdir "${outputdir}" \
     --ecf-home "${ecf_home}" --ecf-out "${ecf_out}" --expdir "${expdir}" \
-    --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" || return 1
+    --first-pdy "${pdy}" --first-cycle "${first_cycle}" --ncycles "${ncycles}" ${render_args[@]+"${render_args[@]}"} || return 1
   echo "Setup done; the suite is not loaded on the ecflow server"
   print_start_instructions
 }

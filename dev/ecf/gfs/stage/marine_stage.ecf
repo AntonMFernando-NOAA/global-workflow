@@ -1,0 +1,79 @@
+#PBS -S /bin/bash
+#PBS -N %TASK%_%CYC%
+#PBS -j oe
+#PBS -q %QUEUE%
+#PBS -A %PROJ%-%PROJENVIR%
+#PBS -l walltime=00:30:00
+#PBS -l select=1:ncpus=1:mem=4GB
+#PBS -l place=vscatter:shared
+#PBS -l debug=true
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Stage task of the first cycle. It stands in for the marine task of the same name
+# without _stage, which cannot run with the current GDASApp, and copies what the
+# downstream jobs read from the realtime comroot (STAGE_SRC_COMROOT).
+# The setup script makes one NAME_stage.ecf from this file for every marine ecf script.
+# Remove them all with the marine_stage option once GDASApp has the marine jobs.
+############################################################
+src_comroot="%STAGE_SRC_COMROOT%"
+comdir="${COMROOT}/%NET%/%gfs_ver%"
+task="%TASK%"
+
+fail() {
+  ecflow_client --msg="***JOB ${ECF_NAME} ${1} ***"
+  ecflow_client --abort
+  exit 1
+}
+
+# Copy analysis/ocean and analysis/ice of the cycle directory ${1} (RUN.PDY/CC or RUN.PDY/CC/memNNN)
+copy_marine_analysis() {
+  local rel=${1} sub
+  for sub in ocean ice; do
+    [[ -d "${src_comroot}/${rel}/analysis/${sub}" ]] || return 1
+  done
+  mkdir -p "${comdir}/${rel}/analysis" || return 1
+  for sub in ocean ice; do
+    cp -rpf "${src_comroot}/${rel}/analysis/${sub}" "${comdir}/${rel}/analysis/" || return 1
+  done
+  echo "Copied the marine analysis of ${rel} from ${src_comroot} to ${comdir}"
+}
+
+cycle_rel="${RUN}.${PDY}/${cyc}"
+if [[ "$(readlink -f "${comdir}/${cycle_rel}")" == "$(readlink -f "${src_comroot}")"/* ]]; then
+  fail "${comdir}/${cycle_rel} is in the realtime data; not copying into it"
+fi
+
+case "${task}" in
+  jgdas_marine_anal_final_stage | jgfs_marine_anal_final_stage)
+    copy_marine_analysis "${cycle_rel}" || fail "NO MARINE ANALYSIS IN ${src_comroot}/${cycle_rel}/analysis"
+    ;;
+  jenkfgdas_marine_ens_recenter_stage)
+    nmem=0
+    for member in "${src_comroot}/${cycle_rel}"/mem???; do
+      if [[ -d "${member}" ]] && copy_marine_analysis "${cycle_rel}/${member##*/}"; then
+        nmem=$((nmem + 1))
+      fi
+    done
+    if [[ ${nmem} -eq 0 ]]; then
+      fail "NO MEMBER MARINE ANALYSIS IN ${src_comroot}/${cycle_rel}"
+    fi
+    ;;
+  *)
+    echo "Nothing to copy for ${task}: no downstream job reads its output"
+    ;;
+esac
+
+%include <tail.h>
+%manual
+
+TASK %TASK%
+
+PURPOSE: Stage task of the first cycle that replaces the marine task of the same name
+without _stage. It copies the marine analysis from the realtime comroot when downstream
+jobs read it, and does nothing otherwise. Later cycles run the real task.
+%end

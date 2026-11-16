@@ -28,6 +28,14 @@ ecflow:
   ecf_home: {{ runtests }}/ECF_HOME
   ecf_out: {{ runtests }}/ECF_OUT
   ncycles: 1
+  # YES: GDASApp lacks the marine jobs, so the first cycle runs NAME_stage tasks that copy the marine
+  # analysis from src_comroot (the realtime run of that cycle must exist); later cycles run the real jobs.
+  # Set NO once GDASApp is updated.
+  marine_stage: YES
+  # YES: the same for the prep and analysis tasks (obs, analysis/atmos, analysis/snow, also of the ensemble)
+  prep_anal_stage: NO
+  # YES: turn on all the stage options above (marine_stage and prep_anal_stage)
+  stage_mode: NO
   # realtime comroot whose gdas/enkfgdas data start the first cycle
   src_comroot: /lfs/h2/emc/gfstemp/emc.global/comroot/retrov17_01_realtime
   # host and port are user-specific: do not set them here. Instead export ECFRT_ECFLOW_HOST and

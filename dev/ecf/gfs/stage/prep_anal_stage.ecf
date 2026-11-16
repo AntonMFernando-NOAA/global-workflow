@@ -1,0 +1,97 @@
+#PBS -S /bin/bash
+#PBS -N %TASK%_%CYC%
+#PBS -j oe
+#PBS -q %QUEUE%
+#PBS -A %PROJ%-%PROJENVIR%
+#PBS -l walltime=01:00:00
+#PBS -l select=1:ncpus=1:mem=4GB
+#PBS -l place=vscatter:shared
+#PBS -l debug=true
+
+model=gfs
+export cyc="%CYC%"
+%include <head.h>
+%include <envir-p1.h>
+
+############################################################
+# Stage task of the first cycle. It stands in for the prep or analysis task of the same name
+# without _stage and copies what the task would make from the realtime comroot (STAGE_SRC_COMROOT).
+# The setup script makes one NAME_stage.ecf from this file for every prep and analysis ecf script.
+# Turn it off with the prep_anal_stage and stage_mode options.
+############################################################
+src_comroot="%STAGE_SRC_COMROOT%"
+comdir="${COMROOT}/%NET%/%gfs_ver%"
+task="%TASK%"
+
+fail() {
+  ecflow_client --msg="***JOB ${ECF_NAME} ${1} ***"
+  ecflow_client --abort
+  exit 1
+}
+
+# Copy the directory ${1} (relative to the comroot) from the realtime comroot
+copy_dir() {
+  local rel=${1}
+  [[ -d "${src_comroot}/${rel}" ]] || return 1
+  mkdir -p "${comdir}/$(dirname "${rel}")" || return 1
+  cp -rpf "${src_comroot}/${rel}" "${comdir}/$(dirname "${rel}")/" || return 1
+  echo "Copied ${rel} from ${src_comroot} to ${comdir}"
+}
+
+cycle_rel="${RUN}.${PDY}/${cyc}"
+if [[ "$(readlink -f "${comdir}/${cycle_rel}")" == "$(readlink -f "${src_comroot}")"/* ]]; then
+  fail "${comdir}/${cycle_rel} is in the realtime data; not copying into it"
+fi
+
+# Directories of the ensemble mean and of the members that have ${1} below the cycle directory
+ens_dirs() {
+  local sub=${1} dir
+  for dir in "${src_comroot}/${cycle_rel}"/ensstat "${src_comroot}/${cycle_rel}"/mem???; do
+    if [[ -d "${dir}" ]]; then
+      echo "${cycle_rel}/${dir##*/}/${sub}"
+    fi
+  done
+}
+
+rels=()
+case "${task}" in
+  *_tropcy_qc_stage | *_prep_sfc_stage)
+    rels=("${cycle_rel}/obs")
+    ;;
+  *_snow_anal_stage)
+    rels=("${cycle_rel}/analysis/snow")
+    ;;
+  jenkfgdas_snow_ens_anal_stage)
+    mapfile -t rels < <(ens_dirs analysis/snow)
+    ;;
+  jenkfgdas_*_stage)
+    mapfile -t rels < <(ens_dirs analysis/atmos)
+    ;;
+  *_atmos_anal*_stage | *_atmos_upp_anal_stage)
+    rels=("${cycle_rel}/analysis/atmos")
+    ;;
+  *)
+    fail "NO STAGE RULE FOR ${task}"
+    ;;
+esac
+
+ncopied=0
+for rel in "${rels[@]}"; do
+  if copy_dir "${rel}"; then
+    ncopied=$((ncopied + 1))
+  fi
+done
+if [[ ${ncopied} -eq 0 ]]; then
+  fail "NOTHING TO COPY FOR ${task} IN ${src_comroot}/${cycle_rel}"
+fi
+
+%include <tail.h>
+%manual
+
+TASK %TASK%
+
+PURPOSE: Stage task of the first cycle that replaces the prep or analysis task of the same
+name without _stage. It copies the obs, analysis/atmos or analysis/snow directories of the
+task (those of the ensemble mean and members for the jenkfgdas tasks) from the realtime
+comroot. Later cycles run the real task.
+%end

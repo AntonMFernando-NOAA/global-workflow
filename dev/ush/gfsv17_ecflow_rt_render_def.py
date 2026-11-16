@@ -20,6 +20,12 @@ The rendered definition differs from gfs_prod.def as follows:
   cycle_end does in production. Only the first family is resumed by hand.
 * A task that waited only on the clock (``trigger :TIME ...``) has no trigger: it
   runs once its family is resumed.
+* With --stage-tasks REGEX every task of the first family whose name matches is
+  renamed NAME_stage (jgfs_marine_bmat_init becomes jgfs_marine_bmat_init_stage), and the
+  triggers of the family are renamed with it. STAGE_SRC_COMROOT is edited in the family
+  from --stage-src-comroot. The NAME_stage.ecf scripts copy the data the real task would
+  make from that comroot, for tasks that cannot run, for example with an outdated
+  component. The other families keep the real tasks.
 """
 
 import re
@@ -36,6 +42,9 @@ CYCLE_FAMILY_END = re.compile(r"^    endfamily\b")
 TIME_TRIGGER = re.compile(r"^\s*trigger\s+:TIME\b")
 CYCLE_END_TASK = re.compile(r"^      task cycle_end\s*$")
 FCST_TASK = re.compile(r"^(\s*)task jgdas_fcst\s*$")
+TASK_LINE = re.compile(r"^(\s*)task (\S+)\s*$")
+DEPENDENCY_LINE = re.compile(r"^\s*(trigger|complete)\s")
+STAGE_SUFFIX = '_stage'
 ECF_FILES = re.compile(r"^(\s*edit ECF_FILES )'[^']*'\s*$")
 CROSS_CYCLE = re.compile(r"((?:\.\./)+)(00|06|12|18)/")
 TRIGGER = re.compile(r"^(\s*trigger\s+)(.*?)\s*$")
@@ -98,7 +107,30 @@ def render_trigger(line, prev_pdycyc):
     return prefix + ' and '.join(terms)
 
 
-def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
+def stage_names(block, stage):
+    """Return the names of the tasks of a family block that match ``stage``.
+
+    Parameters
+    ----------
+    block : list of str
+        Lines of the family.
+    stage : re.Pattern
+        Expression the task names are searched for.
+
+    Returns
+    -------
+    list of str
+        The matching task names.
+    """
+    names = []
+    for line in block:
+        match = TASK_LINE.match(line)
+        if match and stage.search(match.group(2)):
+            names.append(match.group(2))
+    return names
+
+
+def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc, stage=None, stage_src=None):
     """Render the lines of one cycle family.
 
     Parameters
@@ -111,12 +143,17 @@ def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
         Name of the previous cycle family, None for the first family.
     next_pdycyc : str or None
         Name of the next cycle family, None for the last family.
+    stage : re.Pattern or None
+        Tasks whose name matches are renamed with the suffix _stage, and so are
+        the references to them in the triggers.
+    stage_src : str or None
+        Comroot that the stage tasks copy from; edited as STAGE_SRC_COMROOT in the family.
 
     Returns
     -------
-    tuple of (list of str, int, int)
-        The rendered lines, the number of ECF_FILES edits found and the number of
-        jgdas_fcst tasks found.
+    tuple of (list of str, int, int, int)
+        The rendered lines, the number of ECF_FILES edits found, the number of
+        jgdas_fcst tasks found and the number of tasks renamed to stage tasks.
 
     Raises
     ------
@@ -126,6 +163,9 @@ def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
     out = []
     n_ecf_files = 0
     n_fcst = 0
+    n_staged = 0
+    names = stage_names(block, stage) if stage is not None else []
+    staged = re.compile(r"(?<![\w])(" + "|".join(map(re.escape, names)) + r")(?![\w])") if names else None
     in_cycle_end = False
     for line in block:
         if CYCLE_END_TASK.match(line):
@@ -142,6 +182,8 @@ def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
             out.extend([f"    family {pdycyc}",
                         "      defstatus suspended",
                         f"      edit PDYCYC '{pdycyc}'"])
+            if names:
+                out.append(f"      edit STAGE_SRC_COMROOT '{stage_src}'")
             continue
         if CYCLE_FAMILY_END.match(line):
             out.append(f"    endfamily  //{pdycyc}")
@@ -157,16 +199,21 @@ def render_cycle(block, pdycyc, prev_pdycyc, next_pdycyc):
             out.append(f"{match.group(1)}'%EXPDIR%/ecf/scripts'")
             n_ecf_files += 1
             continue
+        if staged is not None and (TASK_LINE.match(line) or DEPENDENCY_LINE.match(line)):
+            if TASK_LINE.match(line):
+                n_staged += 1
+            line = staged.sub(r"\1" + STAGE_SUFFIX, line)
         out.append(line)
         match = FCST_TASK.match(line)
         if match:
             if next_pdycyc is not None:
                 out.append(f"{match.group(1)}  edit NEXT_FAMILY '{next_pdycyc}'")
             n_fcst += 1
-    return out, n_ecf_files, n_fcst
+    return out, n_ecf_files, n_fcst, n_staged
 
 
-def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, expdir, first_pdy, first_cycle, ncycles):
+def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, expdir, first_pdy, first_cycle, ncycles,
+           stage_tasks=None, stage_src_comroot=None):
     """Apply the development changes to the lines of gfs_prod.def.
 
     Parameters
@@ -194,6 +241,11 @@ def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, 
         Hour of the first cycle to run.
     ncycles : int
         Number of cycles to run; one family is rendered for each.
+    stage_tasks : str or None
+        Regular expression; the tasks of the first family whose name matches are
+        renamed to stage tasks.
+    stage_src_comroot : str or None
+        Comroot the stage tasks copy from; required with ``stage_tasks``.
 
     Returns
     -------
@@ -203,8 +255,16 @@ def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, 
     Raises
     ------
     ValueError
-        If the source does not have the expected structure.
+        If the source does not have the expected structure, ``stage_tasks`` is not a
+        valid expression or it matches no task, or ``stage_src_comroot`` is missing.
     """
+    try:
+        stage = re.compile(stage_tasks) if stage_tasks else None
+    except re.error as err:
+        raise ValueError(f"--stage-tasks is not a regular expression: {err}") from err
+    if stage is not None and not stage_src_comroot:
+        raise ValueError("--stage-tasks needs --stage-src-comroot")
+
     header = {
         'PACKAGEHOME': [f"    edit PACKAGEHOME '{packagehome}'"],
         'ENVIR': ["    edit ENVIR 'para'"],
@@ -251,15 +311,21 @@ def render(lines, packagehome, comroot, dataroot, outputdir, ecf_home, ecf_out, 
 
     pdycycs = cycle_pdycycs(first_pdy, first_cycle, ncycles)
     out = list(before)
-    n_ecf_files, n_fcst = 0, 0
+    n_ecf_files, n_fcst, n_staged = 0, 0, 0
     for i, pdycyc in enumerate(pdycycs):
         prev_pdycyc = pdycycs[i - 1] if i > 0 else None
         next_pdycyc = pdycycs[i + 1] if i + 1 < len(pdycycs) else None
-        rendered, count, fcst = render_cycle(blocks[pdycyc[8:]], pdycyc, prev_pdycyc, next_pdycyc)
+        # Only the first family has stage tasks; the later cycles run the real tasks
+        rendered, count, fcst, staged = render_cycle(blocks[pdycyc[8:]], pdycyc, prev_pdycyc, next_pdycyc,
+                                                     stage if i == 0 else None, stage_src_comroot)
         out.extend(rendered)
         n_ecf_files += count
         n_fcst += fcst
+        n_staged += staged
     out.extend(after)
+
+    if stage is not None and n_staged == 0:
+        raise ValueError(f"--stage-tasks {stage_tasks!r} matches no task")
 
     if n_ecf_files != 2 * ncycles:
         raise ValueError(f"expected {2 * ncycles} ECF_FILES edits, found {n_ecf_files}")
@@ -314,6 +380,10 @@ def input_args():
     parser.add_argument('--first-pdy', required=True, help='date (YYYYMMDD) of the first cycle')
     parser.add_argument('--first-cycle', choices=CYCLE_HOURS, required=True, help='hour of the first cycle')
     parser.add_argument('--ncycles', type=int, default=1, help='number of cycles (families) to render')
+    parser.add_argument('--stage-tasks', default=None, metavar='REGEX',
+                        help='rename the tasks of the first family whose name matches to NAME_stage')
+    parser.add_argument('--stage-src-comroot', default=None,
+                        help='comroot the stage tasks copy from, required with --stage-tasks')
     return parser.parse_args()
 
 
@@ -334,7 +404,7 @@ def main():
     lines = args.src.read_text().splitlines()
     try:
         out = render(lines, args.packagehome, args.comroot, args.dataroot, args.outputdir, args.ecf_home,
-                     args.ecf_out, args.expdir, args.first_pdy, args.first_cycle, args.ncycles)
+                     args.ecf_out, args.expdir, args.first_pdy, args.first_cycle, args.ncycles, args.stage_tasks, args.stage_src_comroot)
         out = rename_suite(out, args.suite)
     except ValueError as err:
         print(f"ERROR: cannot render {args.src}: {err}", file=sys.stderr)
