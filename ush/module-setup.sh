@@ -121,7 +121,9 @@ elif [[ ${MACHINE_ID} = "nimbus" ]]; then
     _nimbus_intel_vars() {
         source "${INTEL_COMPILER_VARS:-/opt/intel/oneapi/compiler/2026.1/env/vars.sh}"
     }
+    set +u # vars.sh references unset variables (e.g. SETVARS_CALL)
     _nimbus_intel_vars
+    set -u
     unset -f _nimbus_intel_vars
 
 else
