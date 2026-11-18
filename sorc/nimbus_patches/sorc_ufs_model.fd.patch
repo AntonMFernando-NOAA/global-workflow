@@ -1,0 +1,45 @@
+diff --git a/cmake/configure_nimbus.intel.cmake b/cmake/configure_nimbus.intel.cmake
+new file mode 100644
+index 00000000..92b8ecb7
+--- /dev/null
++++ b/cmake/configure_nimbus.intel.cmake
+@@ -0,0 +1 @@
++set(PARALLEL_NETCDF ON CACHE BOOL "Enable parallel NetCDF" FORCE)
+diff --git a/modulefiles/ufs_nimbus.intel.lua b/modulefiles/ufs_nimbus.intel.lua
+new file mode 100644
+index 00000000..82487404
+--- /dev/null
++++ b/modulefiles/ufs_nimbus.intel.lua
+@@ -0,0 +1,32 @@
++help([[
++loads UFS Model prerequisites for Nimbus/Intel oneAPI (ifx)
++]])
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++stack_intel_ver=os.getenv("stack_intel_ver") or "2026.1.1"
++
++stack_intel_mpi_ver=os.getenv("stack_intel_mpi_ver") or "2021.18"
++load(pathJoin("mpi", stack_intel_mpi_ver))
++
++cmake_ver=os.getenv("cmake_ver") or "3.31.11"
++load(pathJoin("cmake", cmake_ver))
++
++-- Versions are taken from the *_ver environment variables (see ufs_common.lua)
++load("ufs_common")
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++setenv("I_MPI_CC", "icx")
++setenv("I_MPI_CXX", "icpx")
++setenv("I_MPI_F90", "ifx")
++
++setenv("CMAKE_Platform", "nimbus.intel")
++
++whatis("Description: UFS build environment")

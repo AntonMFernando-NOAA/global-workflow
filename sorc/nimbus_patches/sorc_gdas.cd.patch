@@ -1,0 +1,98 @@
+diff --git a/build.sh b/build.sh
+index b0ebc5c1..ad9b2269 100755
+--- a/build.sh
++++ b/build.sh
+@@ -76,7 +76,7 @@ while getopts "w:t:c:hvdfai" opt; do
+ done
+ 
+ case ${BUILD_TARGET} in
+-  hera | orion | hercules | wcoss2 | noaacloud | gaeac5 | gaeac6 | ursa )
++  hera | orion | hercules | wcoss2 | noaacloud | gaeac5 | gaeac6 | ursa | nimbus )
+     echo "Building GDASApp on $BUILD_TARGET"
+     source $dir_root/ush/module-setup.sh
+     module use $dir_root/modulefiles
+diff --git a/modulefiles/GDAS/nimbus.intel.lua b/modulefiles/GDAS/nimbus.intel.lua
+new file mode 100644
+index 00000000..278773ba
+--- /dev/null
++++ b/modulefiles/GDAS/nimbus.intel.lua
+@@ -0,0 +1,79 @@
++help([[
++Load environment for building the GDAS application on Nimbus with Intel oneAPI (ifx).
++]])
++
++local pkgName    = myModuleName()
++local pkgVersion = myModuleVersion()
++local pkgNameVer = myModuleFullName()
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++load(pathJoin("mpi", os.getenv("stack_intel_mpi_ver") or "2021.18"))
++load(pathJoin("python", os.getenv("stack_python_ver") or "3.11.15"))
++
++local gdas_modules = {
++  {["cmake"]          = "3.31.11"},
++  {["git-lfs"]        = "3.7.1"  },
++  {["zlib"]           = "1.3.2"  },
++  {["hdf5"]           = "1.14.5" },
++  {["netcdf-c"]       = "4.9.2"  },
++  {["netcdf-fortran"] = "4.6.1"  },
++  {["netcdf-cxx4"]    = "4.3.1"  },
++  {["parallelio"]     = "2.6.2"  },
++  {["udunits"]        = "2.2.28" },
++  {["jasper"]         = "4.2.8"  },
++  {["libpng"]         = "1.6.55" },
++  {["openblas"]       = "0.3.33" },
++  {["fftw"]           = "3.3.10" },
++  {["boost"]          = "1.90.0" },
++  {["eigen"]          = "3.4.0"  },
++  {["gsl-lite"]       = "0.41.0" },
++  {["bufr"]           = "12.3.0" },
++  {["sp"]             = "2.5.0"  },
++  {["esmf"]           = "8.8.0"  },
++  {["fms"]            = "2025.03-gfs-constants"},
++  {["ecbuild"]        = "3.12.0" },
++  {["eckit"]          = "1.32.3" },
++  {["fckit"]          = "0.14.1" },
++  {["fiat"]           = "1.6.1"  },
++  {["ecmwf-atlas"]    = "0.44.1" },
++  {["eccodes"]        = "2.33.0" },
++  {["jedi-cmake"]     = "1.4.0"  },
++  {["json"]           = "3.12.0" },
++  {["py-pybind11"]    = "3.0.2"  },
++  {["py-pip"]         = "26.1"   },
++  {["py-wheel"]       = "0.45.1" },
++}
++
++for i = 1, #gdas_modules do
++  for name, default_version in pairs(gdas_modules[i]) do
++    local env_version_name = string.gsub(name, "-", "_") .. "_ver"
++    load(pathJoin(name, os.getenv(env_version_name) or default_version))
++  end
++end
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++setenv("I_MPI_CC", "icx")
++setenv("I_MPI_CXX", "icpx")
++setenv("I_MPI_F90", "ifx")
++
++-- TODO: confirm the MPI launcher on Nimbus
++setenv("MPIEXEC_EXEC", "srun")
++setenv("MPIEXEC_NPROC", "-n")
++
++-- TODO: Set once FIX/test data are staged on Nimbus
++-- setenv("CRTM_FIX", "<nimbus_data>/GDASApp/fix/crtm/2.4.0")
++-- setenv("GDASAPP_TESTDATA", "<nimbus_data>/GDASApp/testdata")
++-- setenv("GDASAPP_UNIT_TEST_DATA_PATH", "<nimbus_data>/GDASApp/unittestdata")
++
++whatis("Name: ".. pkgName)
++whatis("Version: ".. pkgVersion)
++whatis("Category: GDASApp")
++whatis("Description: Load all libraries needed for GDASApp")

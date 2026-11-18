@@ -1,0 +1,68 @@
+diff --git a/modulefiles/gsi_nimbus.intel.lua b/modulefiles/gsi_nimbus.intel.lua
+new file mode 100644
+index 000000000..a69d1df66
+--- /dev/null
++++ b/modulefiles/gsi_nimbus.intel.lua
+@@ -0,0 +1,62 @@
++help([[
++GSI environment on Nimbus with Intel oneAPI (ifx) compilers
++]])
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++local stack_intel_ver=os.getenv("stack_intel_ver") or "2026.1.1"
++local stack_intel_mpi_ver=os.getenv("stack_intel_mpi_ver") or "2021.18"
++local stack_python_ver=os.getenv("stack_python_ver") or "3.11.15"
++local cmake_ver=os.getenv("cmake_ver") or "3.31.11"
++local openblas_ver=os.getenv("openblas_ver") or "0.3.33"
++
++local netcdf_c_ver=os.getenv("netcdf_c_ver") or "4.9.2"
++local netcdf_fortran_ver=os.getenv("netcdf_fortran_ver") or "4.6.1"
++local bufr_ver=os.getenv("bufr_ver") or "12.3.0"
++local bacio_ver=os.getenv("bacio_ver") or "2.4.1"
++local w3emc_ver=os.getenv("w3emc_ver") or "2.13.0"
++local ip_ver=os.getenv("ip_ver") or "5.4.0"
++local sigio_ver=os.getenv("sigio_ver") or "2.3.3"
++local sfcio_ver=os.getenv("sfcio_ver") or "1.4.2"
++local nemsio_ver=os.getenv("nemsio_ver") or "2.5.5"
++local wrf_io_ver=os.getenv("wrf_io_ver") or "1.2.0"
++local ncio_ver=os.getenv("ncio_ver") or "1.1.2"
++local crtm_ver=os.getenv("crtm_ver") or "2.4.0.1"
++local crtm_fix_ver=os.getenv("crtm_fix_ver") or "2.4.0.2"
++local gsi_ncdiag_ver=os.getenv("gsi_ncdiag_ver") or "1.1.3"
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++load(pathJoin("mpi", stack_intel_mpi_ver))
++load(pathJoin("python", stack_python_ver))
++load(pathJoin("cmake", cmake_ver))
++-- MKL is not loaded; GSI falls back to LAPACK from openblas
++load(pathJoin("openblas", openblas_ver))
++
++-- gsi_common is not used because it loads prod_util, which is not yet on Nimbus
++load(pathJoin("netcdf-c", netcdf_c_ver))
++load(pathJoin("netcdf-fortran", netcdf_fortran_ver))
++load(pathJoin("bufr", bufr_ver))
++load(pathJoin("bacio", bacio_ver))
++load(pathJoin("w3emc", w3emc_ver))
++load(pathJoin("ip", ip_ver))
++load(pathJoin("sigio", sigio_ver))
++load(pathJoin("sfcio", sfcio_ver))
++load(pathJoin("nemsio", nemsio_ver))
++load(pathJoin("wrf-io", wrf_io_ver))
++load(pathJoin("ncio", ncio_ver))
++load(pathJoin("crtm", crtm_ver))
++load(pathJoin("gsi-ncdiag", gsi_ncdiag_ver))
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++
++-- TODO: Set once FIX files are staged on Nimbus
++-- pushenv("GSI_BINARY_SOURCE_DIR", "<nimbus_fix>/gsi/20251105")
++-- setenv("CRTM_FIX", pathJoin("<nimbus_fix>/crtm", "v" .. crtm_fix_ver))
++
++whatis("Description: GSI environment on Nimbus with Intel Compilers")

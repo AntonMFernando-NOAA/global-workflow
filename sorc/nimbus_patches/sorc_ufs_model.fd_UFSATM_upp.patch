@@ -1,0 +1,38 @@
+diff --git a/modulefiles/nimbus_intel.lua b/modulefiles/nimbus_intel.lua
+new file mode 100644
+index 00000000..39c92b47
+--- /dev/null
++++ b/modulefiles/nimbus_intel.lua
+@@ -0,0 +1,32 @@
++help([[
++Load environment to build UPP on Nimbus with Intel oneAPI (ifx)
++]])
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++stack_intel_ver=os.getenv("stack_intel_ver") or "2026.1.1"
++
++stack_intel_mpi_ver=os.getenv("stack_intel_mpi_ver") or "2021.18"
++load(pathJoin("mpi", stack_intel_mpi_ver))
++
++cmake_ver=os.getenv("cmake_ver") or "3.31.11"
++load(pathJoin("cmake", cmake_ver))
++
++-- Versions are taken from the *_ver environment variables (see upp_common.lua)
++load("upp_common")
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++setenv("I_MPI_CC", "icx")
++setenv("I_MPI_CXX", "icpx")
++setenv("I_MPI_FC", "ifx")
++setenv("I_MPI_F77", "ifx")
++setenv("I_MPI_F90", "ifx")
++
++whatis("Description: UPP build environment")

@@ -1,0 +1,29 @@
+diff --git a/modulefiles/nimbus.intel.lua b/modulefiles/nimbus.intel.lua
+new file mode 100644
+index 0000000..d524a0f
+--- /dev/null
++++ b/modulefiles/nimbus.intel.lua
+@@ -0,0 +1,23 @@
++help([[
++GSI Monitoring environment on Nimbus with Intel oneAPI (ifx) compilers
++]])
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++local stack_intel_ver=os.getenv("stack_intel_ver") or "2026.1.1"
++local stack_intel_mpi_ver=os.getenv("stack_intel_mpi_ver") or "2021.18"
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++load(pathJoin("mpi", stack_intel_mpi_ver))
++
++load("common")
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++
++whatis("Description: GSI Monitoring environment on Nimbus with Intel Compilers")

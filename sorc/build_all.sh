@@ -64,6 +64,13 @@ fi
 
 cd "${HOMEglobal}/sorc" || exit 1
 
+#------------------------------------
+# APPLY NIMBUS COMPONENT PATCHES
+#------------------------------------
+if [[ "${MACHINE_ID}" == "nimbus" ]]; then
+    "${HOMEglobal}/sorc/apply_nimbus_patches.sh" || exit 1
+fi
+
 _build_ufs_opt=""
 _build_debug=""
 _verbose_opt=""

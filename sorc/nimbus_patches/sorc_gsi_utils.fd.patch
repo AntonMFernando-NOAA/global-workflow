@@ -1,0 +1,33 @@
+diff --git a/modulefiles/gsiutils_nimbus.intel.lua b/modulefiles/gsiutils_nimbus.intel.lua
+new file mode 100644
+index 0000000..7180cc2
+--- /dev/null
++++ b/modulefiles/gsiutils_nimbus.intel.lua
+@@ -0,0 +1,27 @@
++help([[
++GSI utilities environment on Nimbus with Intel oneAPI (ifx) compilers
++]])
++
++-- Module paths and versions come from global-workflow versions/build.nimbus.ver
++prepend_path("MODULEPATH", os.getenv("intel_modulepath") or "/opt/intel/oneapi/modulefiles")
++prepend_path("MODULEPATH", os.getenv("stack_core_path") or "/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core")
++
++local stack_intel_ver=os.getenv("stack_intel_ver") or "2026.1.1"
++local stack_intel_mpi_ver=os.getenv("stack_intel_mpi_ver") or "2021.18"
++local stack_python_ver=os.getenv("stack_python_ver") or "3.11.15"
++
++load("tbb")
++load("compiler-rt")
++load("umf")
++load(pathJoin("mpi", stack_intel_mpi_ver))
++load(pathJoin("python", stack_python_ver))
++
++load("gsiutils_common")
++
++-- TODO: prod_util is not yet installed on Nimbus (runtime only)
++
++setenv("CC", "mpiicx")
++setenv("CXX", "mpiicpx")
++setenv("FC", "mpiifx")
++
++whatis("Description: GSI utilities environment on Nimbus with Intel Compilers")
