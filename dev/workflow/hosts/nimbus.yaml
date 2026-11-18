@@ -1,0 +1,26 @@
+# Paths
+# TODO: Nimbus does not yet have shared data, ICSDIR or FIX staged; fill in once available
+DMPDIR: '' # TODO
+IODADIR: '' # TODO
+BASE_GIT: '' # TODO
+BASE_DATA: '' # TODO
+BASE_IC: '' # TODO
+PACKAGEROOT: '' # TODO
+HOMEDIR: '/lfs/work/${USER}' # TODO: confirm
+STMP: '/lfs/work/${USER}/stmp' # TODO: confirm
+PTMP: '/lfs/work/${USER}/ptmp' # TODO: confirm
+NOSCRUB: '${HOMEDIR}'
+COMINsyn: '' # TODO
+# BQS properties
+SCHEDULER: slurm # TODO: confirm (pbspro on WCOSS2-like systems)
+QUEUE: batch # TODO: confirm
+PARTITION_BATCH: compute # TODO: confirm
+# HPSS properties
+HPSS_PROJECT: emc-global
+ARCHCOM_TO: 'local'
+ATARDIR: '' # TODO
+CHGRP_RSTPROD: 'YES'
+CHGRP_CMD: 'chgrp rstprod'
+# Features
+SUPPORTED_RESOLUTIONS: ['C48', 'C96', 'C384'] # TODO: Test and support all cubed-sphere resolutions.
+DO_ARCHCOM: 'NO'

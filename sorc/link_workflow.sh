@@ -94,6 +94,14 @@ case "${machine}" in
     "gaeac5") FIX_DIR="/gpfs/f5/ufs-ard/world-shared/global/glopara/data/fix" ;;
     "gaeac6") FIX_DIR="/gpfs/f6/drsa-precip3/world-shared/role.glopara/fix" ;;
     "noaacloud") FIX_DIR="/lustre/fix" ;;
+    "nimbus")
+        # TODO: Set the default once FIX files are staged on Nimbus
+        FIX_DIR="${FIX_DIR:-}"
+        if [[ -z "${FIX_DIR}" ]]; then
+            echo "FATAL: FIX files are not yet staged on Nimbus; export FIX_DIR to override"
+            exit 1
+        fi
+        ;;
     *)
         echo "FATAL: Unknown target machine ${machine}, couldn't set FIX_DIR"
         exit 1

@@ -51,6 +51,8 @@ case $(hostname -f) in
     login0[1-2].expanse.sdsc.edu) MACHINE_ID=expanse ;; ### expanse1-2
 
     discover3[1-5].prv.cube) MACHINE_ID=discover ;; ### discover31-35
+    # TODO: Add the Nimbus login hostname pattern here (MACHINE_ID=nimbus);
+    #       until then, run "export MACHINE=nimbus" before building
     *) MACHINE_ID=UNKNOWN ;;                        # Unknown platform
 esac
 

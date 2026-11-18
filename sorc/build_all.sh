@@ -52,9 +52,9 @@ if [[ -z "${MACHINE_ID}" ]]; then
 fi
 
 #------------------------------------
-# SOURCE BUILD VERSION FILES ON WCOSS2
+# SOURCE BUILD VERSION FILES ON WCOSS2 AND NIMBUS
 #------------------------------------
-if [[ "${MACHINE_ID}" == "wcoss2" ]]; then
+if [[ "${MACHINE_ID}" == "wcoss2" || "${MACHINE_ID}" == "nimbus" ]]; then
     cd "${HOMEglobal}/versions" || exit 1
     if [[ ! -s "${HOMEglobal}"/versions/build.ver ]]; then
         cp -rp "${HOMEglobal}"/versions/build."${MACHINE_ID}".ver "${HOMEglobal}"/versions/build.ver
