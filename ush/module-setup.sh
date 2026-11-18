@@ -116,6 +116,13 @@ elif [[ ${MACHINE_ID} = "noaacloud" ]]; then
 elif [[ ${MACHINE_ID} = "nimbus" ]]; then
     # We are on Nimbus
     module purge
+    # The Intel oneAPI compiler environment must be set before loading modules.
+    # Sourced inside a function so vars.sh does not see the caller's arguments.
+    _nimbus_intel_vars() {
+        source "${INTEL_COMPILER_VARS:-/opt/intel/oneapi/compiler/2026.1/env/vars.sh}"
+    }
+    _nimbus_intel_vars
+    unset -f _nimbus_intel_vars
 
 else
     echo WARNING: UNKNOWN PLATFORM 1>&2
