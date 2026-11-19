@@ -14,7 +14,6 @@ readonly patch_dir="${HOMEglobal_sorc}/nimbus_patches"
 # patch file -> submodule directory (relative to sorc/)
 declare -A patch_targets=(
   ["sorc_gfs_utils.fd.patch"]="gfs_utils.fd"
-  ["sorc_ufs_utils.fd.patch"]="ufs_utils.fd"
   ["sorc_ufs_model.fd.patch"]="ufs_model.fd"
   ["sorc_ufs_model.fd_UFSATM_upp.patch"]="ufs_model.fd/UFSATM/upp"
   ["sorc_gdas.cd.patch"]="gdas.cd"
