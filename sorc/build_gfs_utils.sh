@@ -49,7 +49,10 @@ if [[ "${MACHINE_ID}" == "nimbus" ]]; then
         cp -rp "${HOMEglobal_}/versions/build.nimbus.ver" "${HOMEglobal_}/versions/build.ver"
     fi
     source "${HOMEglobal_}/versions/build.ver"
-    "${HOMEglobal_}/sorc/apply_nimbus_patches.sh"
+    gfs_module="${HOMEglobal_}/sorc/gfs_utils.fd/modulefiles/gfsutils_nimbus.intel.lua"
+    if [[ ! -f "${gfs_module}" ]]; then
+        "${HOMEglobal_}/sorc/apply_nimbus_patches.sh"
+    fi
     export HOMEglobal="${HOMEglobal_}"
     source "${HOMEglobal_}/ush/module-setup.sh"
 fi
