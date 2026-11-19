@@ -11,6 +11,8 @@ export stack_intel_mpi_ver=2021.18
 export stack_python_ver=3.11.15
 export cmake_ver=3.31.11
 export git_lfs_ver=3.7.1
+export libpng_ver=1.6.55
+export wgrib2_ver=3.8.0
 
 # Core I/O & Compression
 export zlib_ver=1.3.2
@@ -38,6 +40,7 @@ export gsl_lite_ver=0.41.0
 
 # NCEPLIBS
 export bacio_ver=2.4.1
+export bufr_ver=12.3.0
 export sp_ver=2.5.0
 export ip_ver=5.4.0
 export w3emc_ver=2.13.0
@@ -45,6 +48,7 @@ export g2_ver=3.5.1
 export g2tmpl_ver=1.17.0
 export nemsio_ver=2.5.5
 export sigio_ver=2.3.3
+export wrf_io_ver=1.3.0
 export gsi_ncdiag_ver=1.1.3
 export ncdiag_ver="${gsi_ncdiag_ver}" # name read by GSI common modulefiles
 export crtm_ver=2.4.0.1

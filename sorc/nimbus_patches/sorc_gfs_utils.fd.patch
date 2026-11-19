@@ -18,7 +18,14 @@ index 0000000..976ac7f
 +load("tbb")
 +load("compiler-rt")
 +load("umf")
++load("tcm/1.5")
++load(pathJoin("compiler", stack_intel_ver))
 +load(pathJoin("mpi", stack_intel_mpi_ver))
++load(pathJoin("python", "3.11.15"))
++load("python-venv/1.0")
++load("py-setuptools/73.0.1")
++load("py-numpy/1.26.4")
++load(pathJoin("openblas", os.getenv("openblas_ver") or "0.3.33"))
 +
 +load("gfsutils_common")
 +
@@ -27,3 +34,58 @@ index 0000000..976ac7f
 +setenv("FC", "mpiifx")
 +
 +whatis("Description: GFS utilities environment on Nimbus with Intel Compilers")
+diff --git a/ush/detect_machine.sh b/ush/detect_machine.sh
+--- a/ush/detect_machine.sh
++++ b/ush/detect_machine.sh
+@@ -20,6 +20,7 @@ case $(hostname -f) in
+   dlogin10.dogwood.wcoss2.ncep.noaa.gov) MACHINE_ID=wcoss2 ;; ### dogwood10
++  wcoss3-login-[0-9]*) MACHINE_ID=nimbus ;; ### nimbus login nodes
+diff --git a/ush/module-setup.sh b/ush/module-setup.sh
+--- a/ush/module-setup.sh
++++ b/ush/module-setup.sh
+@@ -58,6 +58,16 @@ elif [[ ${MACHINE_ID} == noaacloud ]] ; then
+     # We are on NOAA Cloud
+     module purge
++
++elif [[ ${MACHINE_ID} == nimbus ]] ; then
++    # We are on Nimbus
++    module purge
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0000000..0000000 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -54,7 +54,7 @@ target_link_libraries(nemsio::nemsio INTERFACE w3emc::w3emc_d bacio::bacio_4)
+
+ # Set compiler flags.
+-if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel)$")
++if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel|IntelLLVM)$")
+diff --git a/src/fbwndgfs.fd/CMakeLists.txt b/src/fbwndgfs.fd/CMakeLists.txt
+index 0000000..0000000 100644
+--- a/src/fbwndgfs.fd/CMakeLists.txt
++++ b/src/fbwndgfs.fd/CMakeLists.txt
+@@ -2,7 +2,7 @@ list(APPEND fortran_src
+  fbwndgfs.F
+)
+ 
+-if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel)$")
++if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel|IntelLLVM)$")
+diff --git a/src/reg2grb2.fd/CMakeLists.txt b/src/reg2grb2.fd/CMakeLists.txt
+index 0000000..0000000 100644
+--- a/src/reg2grb2.fd/CMakeLists.txt
++++ b/src/reg2grb2.fd/CMakeLists.txt
+@@ -3,7 +3,7 @@ reg2grb2.f
+regdiag.f
+)
+ 
+-if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel)$")
++if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel|IntelLLVM)$")
+   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -traceback")
+diff --git a/src/gfs_bufr.fd/CMakeLists.txt b/src/gfs_bufr.fd/CMakeLists.txt
+index 0000000..0000000 100644
+--- a/src/gfs_bufr.fd/CMakeLists.txt
++++ b/src/gfs_bufr.fd/CMakeLists.txt
+@@ -29,7 +29,7 @@ list(APPEND fortran_src_free
+ )
+
+-if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel)$")
++if(CMAKE_Fortran_COMPILER_ID MATCHES "^(Intel|IntelLLVM)$")

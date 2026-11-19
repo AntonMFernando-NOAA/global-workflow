@@ -13,14 +13,15 @@ readonly patch_dir="${HOMEglobal_sorc}/nimbus_patches"
 
 # patch file -> submodule directory (relative to sorc/)
 declare -A patch_targets=(
-  ["sorc_gsi_enkf.fd.patch"]="gsi_enkf.fd"
-  ["sorc_gsi_utils.fd.patch"]="gsi_utils.fd"
-  ["sorc_gsi_monitor.fd.patch"]="gsi_monitor.fd"
   ["sorc_gfs_utils.fd.patch"]="gfs_utils.fd"
   ["sorc_ufs_utils.fd.patch"]="ufs_utils.fd"
   ["sorc_ufs_model.fd.patch"]="ufs_model.fd"
   ["sorc_ufs_model.fd_UFSATM_upp.patch"]="ufs_model.fd/UFSATM/upp"
   ["sorc_gdas.cd.patch"]="gdas.cd"
+)
+
+declare -A patch_sentinels=(
+  ["sorc_gfs_utils.fd.patch"]="modulefiles/gfsutils_nimbus.intel.lua"
 )
 
 status=0
@@ -31,6 +32,12 @@ for patch_name in "${!patch_targets[@]}"; do
   if [[ ! -d "${target}" ]]; then
     echo "ERROR: ${target} does not exist; is the submodule checked out?"
     status=1
+    continue
+  fi
+
+  sentinel="${patch_sentinels[$patch_name]:-}"
+  if [[ -n "${sentinel}" && -f "${target}/${sentinel}" ]]; then
+    echo "Nimbus patch already applied: ${patch_name}"
     continue
   fi
 
