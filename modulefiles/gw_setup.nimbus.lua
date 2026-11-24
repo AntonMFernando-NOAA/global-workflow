@@ -12,13 +12,17 @@ prepend_path("MODULEPATH", stack_core_path)
 local stack_python_ver=os.getenv("stack_python_ver") or "3.11.15"
 local py_pyyaml_ver=os.getenv("py_pyyaml_ver") or "6.0.3"
 local py_jinja2_ver=os.getenv("py_jinja2_ver") or "3.1.6"
+local py_markupsafe_ver=os.getenv("py_markupsafe_ver") or "3.0.2"
 local py_numpy_ver=os.getenv("py_numpy_ver") or "1.26.4"
+local py_setuptools_ver=os.getenv("py_setuptools_ver") or "73.0.1"
 local cmake_ver=os.getenv("cmake_ver") or "3.31.11"
 
 load(pathJoin("python", stack_python_ver))
 load("python-venv")
 load(pathJoin("py-pyyaml", py_pyyaml_ver))
+load(pathJoin("py-markupsafe", py_markupsafe_ver))
 load(pathJoin("py-jinja2", py_jinja2_ver))
+load(pathJoin("py-setuptools", py_setuptools_ver))
 load(pathJoin("py-numpy", py_numpy_ver))
 load(pathJoin("cmake", cmake_ver))
 
