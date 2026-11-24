@@ -15,7 +15,7 @@ class Host:
     Gather Host specific information.
     """
 
-    SUPPORTED_HOSTS = ['HERA', 'URSA', 'ORION', 'HERCULES', 'WCOSS2', 'CONTAINER',
+    SUPPORTED_HOSTS = ['HERA', 'URSA', 'ORION', 'HERCULES', 'WCOSS2', 'NIMBUS', 'CONTAINER',
                        'GAEAC5', 'GAEAC6', 'AWSPW', 'AZUREPW', 'GOOGLEPW']
 
     def __init__(self, host=None):
@@ -79,6 +79,8 @@ class Host:
                 print(f'Detected host {machine}; assuming this is a GitHub runner.')
                 self.machine = 'HERA'
 
+        elif os.path.exists('/work/global_workflow_data'):
+            self.machine = 'NIMBUS'
         elif os.path.exists('/work/noaa'):
             # Orion or Hercules
             self.machine = socket.gethostname().split("-", 1)[0].upper()

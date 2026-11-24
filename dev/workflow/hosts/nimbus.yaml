@@ -1,0 +1,28 @@
+# Paths
+DMPDIR: '/work/global_workflow_data'
+IODADIR: '/work/global_workflow_data'
+BASE_GIT: '/work/global_workflow_data'
+BASE_DATA: '/work/global_workflow_data'
+BASE_IC: '/work/global_workflow_data/gfs_v17_c48_archive/ICSDIR'
+AERO_INPUTS_DIR: '/work/global_workflow_data/gfs_v17_c48_archive/fix'
+PACKAGEROOT: '/work/global_workflow_data'
+HOMEDIR: '/work/${USER}'
+STMP: '/work/${USER}/stmp/${machine^^}'
+PTMP: '/work/${USER}/ptmp/${machine^^}'
+NOSCRUB: '${HOMEDIR}'
+COMINsyn: '/work/global_workflow_data'
+COMINnam: '/work/global_workflow_data'
+# BQS properties
+SCHEDULER: slurm
+QUEUE: generalPool
+PARTITION_BATCH: compute
+PARTITION_SERVICE: compute
+# HPSS properties
+HPSS_PROJECT: emc-global
+ARCHCOM_TO: 'local'
+ATARDIR: '${NOSCRUB}/archive_rotdir/${PSLOT}'
+CHGRP_RSTPROD: 'NO'
+CHGRP_CMD: 'chgrp rstprod'
+# Features
+SUPPORTED_RESOLUTIONS: ['C96', 'C48']
+DO_ARCHCOM: 'NO'
