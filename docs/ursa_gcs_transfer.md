@@ -55,6 +55,30 @@ Keep enough scratch space for:
 - temporary compression data,
 - and the final GCS transfer.
 
+If the data or generated tar files are larger than the available scratch quota,
+check quota and capacity before continuing:
+
+```bash
+df -h /scratch3 /scratch4
+quota -s
+lfs quota -u "${USER}" /scratch3 2>/dev/null || true
+```
+
+Also check the size of the source and archive directories:
+
+```bash
+du -sh /scratch3/NCEPDEV/global/role.glopara/data/ICSDIR/C96C48/20250808
+du -sh /scratch3/NCEPDEV/global/role.glopara/fix
+du -sh /scratch3/NCEPDEV/global/role.glopara/dump
+du -sh /scratch4/NCEPDEV/stmp/${USER}/case-tars
+```
+
+Do not create tar files if the source size plus the uncompressed copy and
+generated archive would exceed the scratch quota. Ask a Ursa administrator or
+project lead for additional quota, or reduce the archive to the minimum
+required files before proceeding. Temporary tar files may be removed after
+their GCS uploads and SHA-256 hashes have been verified.
+
 Do not remove or modify files in the shared `role.glopara` directories.
 
 ## 2. Install or load the Google Cloud CLI on Ursa
