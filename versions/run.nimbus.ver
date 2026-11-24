@@ -1,10 +1,14 @@
 #!/bin/bash
 # Runtime version file for NIMBUS (Spack-Stack nco-sci-oneapi-2026.1.0)
+# NOTE: Self-contained; do NOT source spack.ver (it would override these versions)
+
+# Module paths (TODO: replace personal stack path once an official install exists)
+export intel_modulepath="/opt/intel/oneapi/modulefiles"
+export stack_core_path="/lfs/work/alexander_richert/stack/spack-stack/envs/nco-sci-oneapi-2026.1.0/modules_flat/Core"
 
 export stack_intel_ver=2026.1.1
 export stack_intel_mpi_ver=2021.18
 export stack_python_ver=3.11.15
-
 export git_lfs_ver=3.7.1
 
 # Runtime I/O & Utilities
@@ -37,10 +41,10 @@ export g2tmpl_ver=1.17.0
 export nemsio_ver=2.5.5
 export sigio_ver=2.3.3
 export gsi_ncdiag_ver=1.1.3
+export ncdiag_ver="${gsi_ncdiag_ver}" # name read by GSI common modulefiles
 export crtm_ver=2.4.0.1
 export wgrib2_ver=3.8.0
 export grib_util_ver=1.4.0
-
 # TODO: Missing in nco-sci-oneapi-2026.1.0 - uncomment once installed
 # export prod_util_ver=2.1.1
 # export rocoto_ver=1.3.7
@@ -76,7 +80,11 @@ export cdo_ver=2.6.1
 export gempak_ver=7.18.0
 export met_ver=12.1.1
 export metplus_ver=6.1.0
-
 # TODO: Missing in nco-sci-oneapi-2026.1.0 - uncomment once installed
 # export fit2obs_ver=1.1.10
 # export ens_tracker_ver=1.3.0
+
+# Workflow / obs packages (same as other platforms; from spack.ver)
+export gfs_ver=v17.0.0
+export obsproc_run_ver=1.3.0
+export prepobs_run_ver=1.2.0

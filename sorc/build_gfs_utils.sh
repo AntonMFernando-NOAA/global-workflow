@@ -44,6 +44,19 @@ readonly HOMEglobal_=$(cd "$(dirname "$(readlink -f -n "${BASH_SOURCE[0]}")")" &
 
 source "${HOMEglobal_}/ush/detect_machine.sh"
 
+if [[ "${MACHINE_ID}" == "nimbus" ]]; then
+    if [[ ! -s "${HOMEglobal_}/versions/build.ver" ]]; then
+        cp -rp "${HOMEglobal_}/versions/build.nimbus.ver" "${HOMEglobal_}/versions/build.ver"
+    fi
+    source "${HOMEglobal_}/versions/build.ver"
+    gfs_module="${HOMEglobal_}/sorc/gfs_utils.fd/modulefiles/gfsutils_nimbus.intel.lua"
+    if [[ ! -f "${gfs_module}" ]]; then
+        "${HOMEglobal_}/sorc/apply_nimbus_patches.sh"
+    fi
+    export HOMEglobal="${HOMEglobal_}"
+    source "${HOMEglobal_}/ush/module-setup.sh"
+fi
+
 BUILD_TYPE=${BUILD_TYPE:-"Release"} \
     BUILD_VERBOSE=${BUILD_VERBOSE:-"NO"} \
     BUILD_JOBS=${BUILD_JOBS:-8} \
