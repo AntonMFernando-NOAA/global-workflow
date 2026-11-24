@@ -542,24 +542,25 @@ Save the SHA-256 values for comparison after transfer.
 
 ## 8. Upload the archives to GCS
 
-Create `upload_c48_archives.sh`:
+The archives can be transferred directly from an Ursa login node if their
+combined size fits the network/session limits. Authenticate from the terminal:
 
 ```bash
-#!/bin/bash
-#SBATCH --job-name=upload_c48_archives
-#SBATCH --account=fv3-cpu
-#SBATCH --partition=u1-compute
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=8G
-#SBATCH --time=06:00:00
-#SBATCH --output=/scratch3/NCEPDEV/global/Anton.Fernando/upload-c48-%j.out
-#SBATCH --error=/scratch3/NCEPDEV/global/Anton.Fernando/upload-c48-%j.err
+gcloud auth login anton.fernando@hpc.noaa.gov --no-launch-browser
+gcloud config set project wcoss-eae-project-1
+gcloud auth print-access-token >/dev/null
+```
 
-set -euo pipefail
+The login command prints an authorization URL and then waits for a verification
+code. Open the URL in a browser, complete Google sign-in and consent, copy the
+verification code, and paste it into the terminal. Do not run this command in a
+Slurm job: it requires interactive browser authentication.
 
-OUT=/scratch4/NCEPDEV/stmp/${USER}/case-tars
+If the active token has expired, run `gcloud auth login` again. Then upload the
+four archives and checksum file:
+
+```bash
+OUT=/scratch3/NCEPDEV/global/Anton.Fernando
 BUCKET=gs://wcoss-anton-space1
 
 gcloud storage cp \
@@ -577,24 +578,36 @@ gcloud storage cp \
 gcloud storage cp \
   "${OUT}/gfs_v17_c48_marine_obs.tar.gz" \
   "${BUCKET}/gfs_v17_c48_marine_obs.tar.gz"
-```
 
-Submit:
-
-```bash
-chmod 0755 upload_c48_archives.sh
-sbatch upload_c48_archives.sh
+gcloud storage cp \
+  "${OUT}/gfs_v17_c48_SHA256SUMS.txt" \
+  "${BUCKET}/gfs_v17_c48_SHA256SUMS.txt"
 ```
 
 Verify the GCS objects:
 
 ```bash
 gcloud storage ls -l gs://wcoss-anton-space1/gfs_v17_c48_*.tar.gz
+gcloud storage ls -l gs://wcoss-anton-space1/gfs_v17_c48_SHA256SUMS.txt
 ```
 
 ## 9. Verify GCS hashes
 
-Get the GCS hash for each uploaded object:
+First verify the local archives and their recorded SHA-256 values:
+
+```bash
+cd /scratch3/NCEPDEV/global/Anton.Fernando
+sha256sum -c gfs_v17_c48_SHA256SUMS.txt
+gzip -t gfs_v17_c48_ics.tar.gz
+gzip -t gfs_v17_c48_fix.tar.gz
+gzip -t gfs_v17_c48_obs.tar.gz
+gzip -t gfs_v17_c48_marine_obs.tar.gz
+```
+
+All four checksum lines should end in `OK`, and each `gzip -t` should return
+without an error.
+
+Get the GCS CRC32C hash for each uploaded object:
 
 ```bash
 gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_ics.tar.gz
@@ -603,13 +616,34 @@ gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_obs.tar.gz
 gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_marine_obs.tar.gz
 ```
 
-Compare each GCS SHA-256 value with the matching Ursa SHA-256 value:
+The successful upload and GCS CRC32C digest provide GCS-side integrity
+verification. GCS `gcloud storage hash` reports CRC32C and, when available,
+MD5; it does not report SHA-256. To verify the checksum file itself was copied
+byte-for-byte:
 
 ```bash
-sha256sum /scratch4/NCEPDEV/stmp/${USER}/case-tars/gfs_v17_c48_*.tar.gz
+gcloud storage cp \
+  gs://wcoss-anton-space1/gfs_v17_c48_SHA256SUMS.txt \
+  /tmp/gfs_v17_c48_SHA256SUMS.gcs.txt
+
+cmp -s \
+  /scratch3/NCEPDEV/global/Anton.Fernando/gfs_v17_c48_SHA256SUMS.txt \
+  /tmp/gfs_v17_c48_SHA256SUMS.gcs.txt
+echo $?
 ```
 
-Do not begin the WCOSS download until all local and GCS hash pairs match.
+Exit status `0` means the GCS checksum file matches the local file. Do not begin
+the WCOSS download until the local SHA-256 checks, gzip checks, object listing,
+and checksum-file comparison all pass.
+
+The four uploads made on 2026-11-24 have these GCS CRC32C values:
+
+```text
+gfs_v17_c48_ics.tar.gz:         cOrpTg==
+gfs_v17_c48_fix.tar.gz:         LjT5mA==
+gfs_v17_c48_obs.tar.gz:         EiKPOA==
+gfs_v17_c48_marine_obs.tar.gz:  grAkyQ==
+```
 
 ## 10. Download to WCOSS Lustre
 
@@ -767,8 +801,9 @@ After successful GCS upload and checksum verification, remove temporary Ursa
 archives only if no other user or process needs them:
 
 ```bash
-rm -f /scratch4/NCEPDEV/stmp/${USER}/case-tars/gfs_v17_c48_*.tar.gz
-rm -f /scratch4/NCEPDEV/stmp/${USER}/case-tars/ics_manifest.txt
+rm -f /scratch3/NCEPDEV/global/Anton.Fernando/gfs_v17_c48_*.tar.gz
+rm -f /scratch3/NCEPDEV/global/Anton.Fernando/gfs_v17_c48_SHA256SUMS.txt
+rm -f /scratch3/NCEPDEV/global/Anton.Fernando/gfs_v17_c48_ics_manifest.txt
 ```
 
 Do not use broad recursive deletion. Remove only the named archive and
