@@ -711,15 +711,14 @@ Create `extract_c48_archives.sh`:
 set -euo pipefail
 
 DEST=/work/global_workflow_data
-ARCHIVE="${DEST}/gfs_v17_c48_archive"
-
-mkdir -p "${ARCHIVE}"
+ICSDIR="${DEST}/ICSDIR"
+mkdir -p "${ICSDIR}"
 
 tar -xzf "${DEST}/gfs_v17_c48_ics.tar.gz" \
-  -C "${ARCHIVE}"
+  -C "${ICSDIR}"
 
 tar -xzf "${DEST}/gfs_v17_c48_fix.tar.gz" \
-  -C "${ARCHIVE}"
+  -C "${DEST}"
 
 tar -xzf "${DEST}/gfs_v17_c48_obs.tar.gz" \
   -C "${DEST}"
@@ -738,8 +737,8 @@ sbatch extract_c48_archives.sh
 The extracted layout is:
 
 ```text
-/work/global_workflow_data/gfs_v17_c48_archive/C96C48/20250808
-/work/global_workflow_data/gfs_v17_c48_archive/fix
+/work/global_workflow_data/ICSDIR/C96C48/20250808
+/work/global_workflow_data/fix
 /work/global_workflow_data/gdas.20211220
 /work/global_workflow_data/gdas.20211221
 /work/global_workflow_data/gfs.20211220
@@ -759,16 +758,16 @@ must sit directly under it.
 Set:
 
 ```bash
-export ICSDIR_ROOT=/work/global_workflow_data/gfs_v17_c48_archive
+export ICSDIR_ROOT=/work/global_workflow_data/ICSDIR
 export RUNTESTS=/work/global_workflow_data/run
 export DMPDIR=/work/global_workflow_data
 export BASE_DATA=/work/global_workflow_data
-export CRTM_FIX=${ICSDIR_ROOT}/fix/crtm/v2.4.0.2
+export CRTM_FIX=/work/global_workflow_data/fix/crtm/v2.4.0.2
 export pslot=C96C48mx500_S2SW_cyc_gfs
 
 mkdir -p "${RUNTESTS}"
 test -d "${ICSDIR_ROOT}/C96C48/20250808"
-test -d "${ICSDIR_ROOT}/fix"
+test -d "/work/global_workflow_data/fix"
 test -d "${CRTM_FIX}"
 test -d "${DMPDIR}/gdas.20211220"
 test -d "${DMPDIR}/gdas.20211221"
