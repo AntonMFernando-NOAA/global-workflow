@@ -11,9 +11,20 @@ The source data are:
 
 | Data | Ursa location | Archive |
 |---|---|---|
-| Initial conditions | `/scratch3/NCEPDEV/global/role.glopara/data/ICSDIR/C96C48/20250808` | `gfs_v17_c48_ics.tar.gz` |
-| FIX data | `/scratch3/NCEPDEV/global/role.glopara/fix` | `gfs_v17_c48_fix.tar.gz` |
-| Atmospheric dumps | `/scratch3/NCEPDEV/global/role.glopara/dump` | `gfs_v17_c48_obs.tar.gz` |
+| Initial conditions (54 files, about 2.4 GB) | `/scratch3/NCEPDEV/global/role.glopara/data/ICSDIR/C96C48/20250808` | `gfs_v17_c48_ics.tar.gz` |
+| FIX data (selected subdirectories, about 25 GB) | `/scratch3/NCEPDEV/global/role.glopara/fix` | `gfs_v17_c48_fix.tar.gz` |
+| Atmospheric dumps (4 cycles, about 25 GB) | `/scratch3/NCEPDEV/global/role.glopara/dump` | `gfs_v17_c48_obs.tar.gz` |
+| Marine observations (4 cycles, about 9 GB) | `/scratch3/NCEPDEV/global/role.glopara/data/experimental_obs` | `gfs_v17_c48_marine_obs.tar.gz` |
+
+The file lists in this guide were taken from the files staged and read by an
+earlier successful run of this case, and checked against `link_workflow.sh`,
+`parm/stage/*.j2`, and `ush/forecast_predet.sh`. Sizes are before compression.
+Section 14 shows how each list was verified and how to repeat the checks.
+
+Some of the data are restricted (group `rstprod`): the radiance
+`gdas.t12z.radstat` in the initial conditions and several PREPBUFR and BUFR
+dump files such as `adpsfc`. Confirm that copying them to GCS and WCOSS is
+permitted before uploading.
 
 The GCS destination is:
 
@@ -29,14 +40,6 @@ nodes are not appropriate for large or CPU-intensive transfers.
 On Ursa, check the source size and available scratch capacity:
 
 ```bash
-ICROOT=/scratch3/NCEPDEV/global/role.glopara/data/ICSDIR
-FIXROOT=/scratch3/NCEPDEV/global/role.glopara/fix
-OBSROOT=/scratch3/NCEPDEV/global/role.glopara/dump
-
-du -sh "${ICROOT}/C96C48/20250808"
-du -sh "${FIXROOT}"
-du -sh "${OBSROOT}"
-
 df -h /scratch3 /scratch4
 quota -s
 lfs quota -u "${USER}" /scratch3 2>/dev/null || true
@@ -64,17 +67,18 @@ quota -s
 lfs quota -u "${USER}" /scratch3 2>/dev/null || true
 ```
 
-Also check the size of the source and archive directories:
+The four archives total roughly 60 GB before compression (the FIX archive
+alone is about 25 GB, mostly `aer` and `mom6`). Do not run `du` on the whole
+`role.glopara` trees on a login node: `fix/aer/20250529` alone is 144 GB, and
+the full `ICSDIR` and `dump` trees are very large. Check the size of the
+generated archives instead:
 
 ```bash
-du -sh /scratch3/NCEPDEV/global/role.glopara/data/ICSDIR/C96C48/20250808
-du -sh /scratch3/NCEPDEV/global/role.glopara/fix
-du -sh /scratch3/NCEPDEV/global/role.glopara/dump
 du -sh /scratch4/NCEPDEV/stmp/${USER}/case-tars
 ```
 
-Do not create tar files if the source size plus the uncompressed copy and
-generated archive would exceed the scratch quota. Ask a Ursa administrator or
+Do not create tar files if the generated archives would exceed the scratch
+quota. Ask a Ursa administrator or
 project lead for additional quota, or reduce the archive to the minimum
 required files before proceeding. Temporary tar files may be removed after
 their GCS uploads and SHA-256 hashes have been verified.
@@ -178,6 +182,16 @@ available.
 
 ## 4. Create a minimal initial-condition archive
 
+The case cold starts at `2021122012` with `NMEM_ENS=2`. Only 54 files from
+`C96C48/20250808` are staged: the `gdas.20211220` control and
+`enkfgdas.20211220` members `mem001` and `mem002`. The other dates (`20220515`,
+`20240223`, `20250327`), the 18z cycle, and the remaining ensemble members are
+not needed.
+
+Many files in `ICSDIR` are symlinks (for example `gdas.t12z.abias.txt` points
+to `gdas.t12z.abias`), and `stage_ic` requests the link names. The archive uses
+`tar -h` so the link names are stored as regular files.
+
 Create `tar_c48_ics.sh`:
 
 ```bash
@@ -197,18 +211,59 @@ set -euo pipefail
 
 ICROOT=/scratch3/NCEPDEV/global/role.glopara/data/ICSDIR
 OUT=/scratch4/NCEPDEV/stmp/${USER}/case-tars
+MANIFEST="${OUT}/ics_manifest.txt"
 
 mkdir -p "${OUT}"
-test -d "${ICROOT}/C96C48/20250808"
+cd "${ICROOT}"
 
-tar -I 'pigz -p 16' -cf \
+{
+  echo "C96C48/20250808/gdas.20211220/06/model/ocean/restart/20211220.120000.MOM.res.nc"
+  echo "C96C48/20250808/gdas.20211220/06/model/wave/restart/20211220.120000.restart.ww3"
+  for f in abias.txt abias_air.txt abias_int.txt abias_pc.txt radstat.tar; do
+    echo "C96C48/20250808/gdas.20211220/12/analysis/atmos/gdas.t12z.${f}"
+  done
+  echo "C96C48/20250808/gdas.20211220/12/analysis/ice/20211220.120000.analysis.cice_model.res.nc"
+  echo "C96C48/20250808/gdas.20211220/12/analysis/ocean/gdas.t12z.mom6_increment.i006.nc"
+
+  atm=C96C48/20250808/gdas.20211220/12/model/atmos/input
+  echo "${atm}/gfs_ctrl.nc"
+  for t in 1 2 3 4 5 6; do
+    echo "${atm}/gfs_data.tile${t}.nc"
+    echo "${atm}/sfc_data.tile${t}.nc"
+  done
+
+  for mem in mem001 mem002; do
+    ens=C96C48/20250808/enkfgdas.20211220
+    echo "${ens}/06/${mem}/model/ocean/restart/20211220.120000.MOM.res.nc"
+    echo "${ens}/12/${mem}/analysis/ice/20211220.120000.analysis.cice_model.res.nc"
+    echo "${ens}/12/${mem}/analysis/ocean/enkfgdas.t12z.mom6_increment.i006.nc"
+    echo "${ens}/12/${mem}/model/atmos/input/gfs_ctrl.nc"
+    for t in 1 2 3 4 5 6; do
+      echo "${ens}/12/${mem}/model/atmos/input/gfs_data.tile${t}.nc"
+      echo "${ens}/12/${mem}/model/atmos/input/sfc_data.tile${t}.nc"
+    done
+  done
+} > "${MANIFEST}"
+
+# Expect 54 files
+wc -l "${MANIFEST}"
+while read -r f; do
+  test -e "${ICROOT}/${f}" || { echo "Missing IC file: ${f}" >&2; exit 1; }
+done < "${MANIFEST}"
+
+tar -h -I 'pigz -p 16' -cf \
   "${OUT}/gfs_v17_c48_ics.tar.gz" \
-  -C "${ICROOT}" C96C48/20250808
+  -C "${ICROOT}" -T "${MANIFEST}"
 
 gzip -t "${OUT}/gfs_v17_c48_ics.tar.gz"
 sha256sum "${OUT}/gfs_v17_c48_ics.tar.gz"
 ls -lh "${OUT}/gfs_v17_c48_ics.tar.gz"
 ```
+
+`gdas.t12z.radstat.tar` is 1.8 GB and restricted (`rstprod`). It is staged only
+if it exists, and it is the guess radstat read by the GSI analysis when
+`USE_RADSTAT=YES`. If it may not be copied, remove `radstat.tar` from the loop
+above and set `USE_RADSTAT=NO` in the experiment.
 
 Submit:
 
@@ -219,32 +274,43 @@ sbatch tar_c48_ics.sh
 
 ## 5. Create a minimal FIX archive
 
-The workflow links a selected FIX version for each FIX category. Do not archive
-the entire `role.glopara/fix` tree. Include the versions from
-`versions/fix.ver` used by the workflow:
+`sorc/link_workflow.sh` links a FIX version for each category, but this case
+reads only part of each version directory. Do not archive whole FIX versions:
+`aer/20250529` alone is 144 GB, and `mom6/20250128` is 17 GB. Archive only:
 
 ```text
-aer/20250529
+aer/20250529/merra2.aerclim.2014-2023.m01..m12.nc   (IAER=1011, MERRA2_6ym off)
 am/20220805
-chem/20220805
-cice/20240416
-cpl/20230526
-datm/20220805
+cice/20240416/500
+cpl/20230526/aC48o500, aC96o500
 gsi/20251105
 lut/20220805
-mom6/20250128
-orog/20240917
-sfc_climo/20220805
-ugwd/20240624
+mom6/20250128/500
+orog/20240917/C48, C96
+ugwd/20240624/C48, C96, ugwp_limb_tau.nc
 verif/20220805
 wave/20260622
+crtm/v2.4.0.2
 gdas/fv3jedi/20241115
-gdas/gsibec/20250505
 gdas/obs/20240213
 gdas/soca/20250519
-gdas/aero/20240806
 gdas/snow/20241210
 ```
+
+Notes:
+
+- `crtm/v2.4.0.2` is not in `versions/fix.ver`. It is the `CRTM_FIX` set by
+  `modulefiles/gw_run.<machine>.lua` and is required by the GSI analysis. There
+  is no `gw_run.nimbus` modulefile, so `CRTM_FIX` must be set by hand on WCOSS3
+  (see section 12).
+- `chem`, `datm`, `sfc_climo`, `gdas/gsibec`, and `gdas/aero` are linked by
+  `link_workflow.sh` but are not read by this case (no aerosol or JEDI
+  atmospheric DA, cold start from existing ICs). The links will dangle, which is
+  harmless.
+- Keep the `fix/<category>/<version>/...` layout so `link_workflow.sh` finds
+  `${FIX_DIR}/<category>/<version>`.
+- `fix.ver` versions must match the directories above. If `versions/fix.ver`
+  changes, update this list.
 
 Create `tar_c48_fix.sh`:
 
@@ -267,35 +333,39 @@ FIXPARENT=/scratch3/NCEPDEV/global/role.glopara
 OUT=/scratch4/NCEPDEV/stmp/${USER}/case-tars
 mkdir -p "${OUT}"
 
-FIX_ITEMS=(
-  fix/aer/20250529
+FIX_ITEMS=()
+for month in 01 02 03 04 05 06 07 08 09 10 11 12; do
+  FIX_ITEMS+=("fix/aer/20250529/merra2.aerclim.2014-2023.m${month}.nc")
+done
+
+FIX_ITEMS+=(
   fix/am/20220805
-  fix/chem/20220805
-  fix/cice/20240416
-  fix/cpl/20230526
-  fix/datm/20220805
+  fix/cice/20240416/500
+  fix/cpl/20230526/aC48o500
+  fix/cpl/20230526/aC96o500
   fix/gsi/20251105
   fix/lut/20220805
-  fix/mom6/20250128
-  fix/orog/20240917
-  fix/sfc_climo/20220805
-  fix/ugwd/20240624
+  fix/mom6/20250128/500
+  fix/orog/20240917/C48
+  fix/orog/20240917/C96
+  fix/ugwd/20240624/C48
+  fix/ugwd/20240624/C96
+  fix/ugwd/20240624/ugwp_limb_tau.nc
   fix/verif/20220805
   fix/wave/20260622
+  fix/crtm/v2.4.0.2
   fix/gdas/fv3jedi/20241115
-  fix/gdas/gsibec/20250505
   fix/gdas/obs/20240213
   fix/gdas/soca/20250519
-  fix/gdas/aero/20240806
   fix/gdas/snow/20241210
 )
 
 for item in "${FIX_ITEMS[@]}"; do
-  test -d "${FIXPARENT}/${item}" ||
-    { echo "Missing FIX directory: ${FIXPARENT}/${item}" >&2; exit 1; }
+  test -e "${FIXPARENT}/${item}" ||
+    { echo "Missing FIX item: ${FIXPARENT}/${item}" >&2; exit 1; }
 done
 
-tar -I 'pigz -p 16' -cf \
+tar -h -I 'pigz -p 16' -cf \
   "${OUT}/gfs_v17_c48_fix.tar.gz" \
   -C "${FIXPARENT}" "${FIX_ITEMS[@]}"
 
@@ -312,22 +382,23 @@ chmod 0755 tar_c48_fix.sh
 sbatch tar_c48_fix.sh
 ```
 
-The `crtm`, `gldas`, `glwu`, `raw`, `reg2grb2`, and unrelated FIX versions are
-not needed for this case.
-
 ## 6. Create a minimal observation archive
 
-The case spans `2021122012` through `2021122100`. Package the existing
-atmospheric dump directories needed for preparation and cycling:
+The case spans `2021122012` through `2021122100`. The atmospheric dump files
+read by the case are in these directories (the `atmos` entry in each cycle
+directory is a symlink to `./`, so the files sit directly under `HH/`):
 
 ```text
-gdas.20211220/06/atmos
-gdas.20211220/12/atmos
-gdas.20211220/18/atmos
-gdas.20211221/00/atmos
-gfs.20211220/18/atmos
-gfs.20211221/00/atmos
+gdas.20211220/18
+gdas.20211221/00
+gfs.20211220/18
+gfs.20211221/00
+gdas.20211220/12/gdas.t12z.updated.status.tm00.bufr_d   (single file)
 ```
+
+The `06` cycles and the rest of `gdas.20211220/12` are not read. The four
+directories are about 25 GB. Many of the PREPBUFR/BUFR files are restricted
+(`rstprod`).
 
 Create `tar_c48_obs.sh`:
 
@@ -348,37 +419,28 @@ set -euo pipefail
 
 OBSROOT=/scratch3/NCEPDEV/global/role.glopara/dump
 OUT=/scratch4/NCEPDEV/stmp/${USER}/case-tars
-MANIFEST="${OUT}/obs_manifest.txt"
 
 mkdir -p "${OUT}"
-: > "${MANIFEST}"
 
-dirs=(
-  gdas.20211220/06/atmos
-  gdas.20211220/12/atmos
-  gdas.20211220/18/atmos
-  gdas.20211221/00/atmos
-  gfs.20211220/18/atmos
-  gfs.20211221/00/atmos
+items=(
+  gdas.20211220/18
+  gdas.20211221/00
+  gfs.20211220/18
+  gfs.20211221/00
+  gdas.20211220/12/gdas.t12z.updated.status.tm00.bufr_d
 )
 
-for dir in "${dirs[@]}"; do
-  if [[ -d "${OBSROOT}/${dir}" ]]; then
-    echo "${dir}" >> "${MANIFEST}"
-  else
-    echo "Missing OBS directory: ${OBSROOT}/${dir}" >&2
-  fi
+for item in "${items[@]}"; do
+  test -e "${OBSROOT}/${item}" ||
+    { echo "Missing OBS item: ${OBSROOT}/${item}" >&2; exit 1; }
 done
-
-test -s "${MANIFEST}"
 
 tar -I 'pigz -p 16' -cf \
   "${OUT}/gfs_v17_c48_obs.tar.gz" \
-  -C "${OBSROOT}" -T "${MANIFEST}"
+  -C "${OBSROOT}" "${items[@]}"
 
 gzip -t "${OUT}/gfs_v17_c48_obs.tar.gz"
 sha256sum "${OUT}/gfs_v17_c48_obs.tar.gz"
-cat "${MANIFEST}"
 tar -tzf "${OUT}/gfs_v17_c48_obs.tar.gz" | head
 ls -lh "${OUT}/gfs_v17_c48_obs.tar.gz"
 ```
@@ -390,17 +452,74 @@ chmod 0755 tar_c48_obs.sh
 sbatch tar_c48_obs.sh
 ```
 
-The case enables marine observation preparation and may require experimental
-marine data. Check for the required source before deciding whether to create an
-additional marine-observation archive:
+### Marine observations
+
+The case sets `DO_JEDIOCNVAR=YES`, so `prepoceanobs` reads marine
+observations from `${BASE_DATA}/experimental_obs` (`dmpdir_exp` in
+`dev/parm/config/gfs/yaml/defaults.yaml`). The `gdas.*` and `gfs.*` copies are
+separate files and both are read. Only `adt`, `icec`, `sss`, and `sst`, plus the
+status log, hold data (about 9 GB); the empty `insitu` directory is kept so the
+layout matches. `atmos` is not read.
+
+Create `tar_c48_marine_obs.sh`:
 
 ```bash
-find /scratch3/NCEPDEV/global/role.glopara/data/experimental_obs \
-  -maxdepth 3 -type d 2>/dev/null | head
+#!/bin/bash
+#SBATCH --job-name=tar_c48_marine_obs
+#SBATCH --account=fv3-cpu
+#SBATCH --partition=u1-compute
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
+#SBATCH --time=08:00:00
+#SBATCH --output=/scratch3/NCEPDEV/global/Anton.Fernando/tar-c48-marine-%j.out
+#SBATCH --error=/scratch3/NCEPDEV/global/Anton.Fernando/tar-c48-marine-%j.err
+
+set -euo pipefail
+
+MARINEROOT=/scratch3/NCEPDEV/global/role.glopara/data/experimental_obs
+OUT=/scratch4/NCEPDEV/stmp/${USER}/case-tars
+
+mkdir -p "${OUT}"
+
+items=()
+for run in gdas gfs; do
+  for cyc in 20211220/18 20211221/00; do
+    pdy=${cyc%/*}
+    hh=${cyc#*/}
+    base="${run}.${pdy}/${hh}/ocean"
+    for sub in adt icec insitu sss sst; do
+      items+=("${base}/${sub}")
+    done
+    items+=("${base}/${run}.t${hh}z.obsforge_marine_status.log")
+  done
+done
+
+for item in "${items[@]}"; do
+  test -e "${MARINEROOT}/${item}" ||
+    { echo "Missing marine item: ${MARINEROOT}/${item}" >&2; exit 1; }
+done
+
+tar -h -I 'pigz -p 16' -cf \
+  "${OUT}/gfs_v17_c48_marine_obs.tar.gz" \
+  -C "${MARINEROOT}" "${items[@]}"
+
+gzip -t "${OUT}/gfs_v17_c48_marine_obs.tar.gz"
+sha256sum "${OUT}/gfs_v17_c48_marine_obs.tar.gz"
+tar -tzf "${OUT}/gfs_v17_c48_marine_obs.tar.gz" | head
+ls -lh "${OUT}/gfs_v17_c48_marine_obs.tar.gz"
 ```
 
-Do not include the old dump directories shown in the Ursa dump listing. They
-are not needed by this 20211220-20211221 test.
+Submit:
+
+```bash
+chmod 0755 tar_c48_marine_obs.sh
+sbatch tar_c48_marine_obs.sh
+```
+
+Do not include the other dump or experimental_obs dates in the Ursa listings.
+They are not needed by this 20211220-20211221 test.
 
 ## 7. Validate all Ursa archives
 
@@ -411,10 +530,12 @@ ls -lh "${OUT}"/*.tar.gz
 sha256sum "${OUT}/gfs_v17_c48_ics.tar.gz"
 sha256sum "${OUT}/gfs_v17_c48_fix.tar.gz"
 sha256sum "${OUT}/gfs_v17_c48_obs.tar.gz"
+sha256sum "${OUT}/gfs_v17_c48_marine_obs.tar.gz"
 
 gzip -t "${OUT}/gfs_v17_c48_ics.tar.gz"
 gzip -t "${OUT}/gfs_v17_c48_fix.tar.gz"
 gzip -t "${OUT}/gfs_v17_c48_obs.tar.gz"
+gzip -t "${OUT}/gfs_v17_c48_marine_obs.tar.gz"
 ```
 
 Save the SHA-256 values for comparison after transfer.
@@ -452,6 +573,10 @@ gcloud storage cp \
 gcloud storage cp \
   "${OUT}/gfs_v17_c48_obs.tar.gz" \
   "${BUCKET}/gfs_v17_c48_obs.tar.gz"
+
+gcloud storage cp \
+  "${OUT}/gfs_v17_c48_marine_obs.tar.gz" \
+  "${BUCKET}/gfs_v17_c48_marine_obs.tar.gz"
 ```
 
 Submit:
@@ -475,6 +600,7 @@ Get the GCS hash for each uploaded object:
 gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_ics.tar.gz
 gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_fix.tar.gz
 gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_obs.tar.gz
+gcloud storage hash gs://wcoss-anton-space1/gfs_v17_c48_marine_obs.tar.gz
 ```
 
 Compare each GCS SHA-256 value with the matching Ursa SHA-256 value:
@@ -525,6 +651,10 @@ gcloud storage cp \
 gcloud storage cp \
   "${BUCKET}/gfs_v17_c48_obs.tar.gz" \
   "${DEST}/gfs_v17_c48_obs.tar.gz"
+
+gcloud storage cp \
+  "${BUCKET}/gfs_v17_c48_marine_obs.tar.gz" \
+  "${DEST}/gfs_v17_c48_marine_obs.tar.gz"
 ```
 
 ## 11. Extract on WCOSS Lustre
@@ -559,6 +689,10 @@ tar -xzf "${DEST}/gfs_v17_c48_fix.tar.gz" \
 
 tar -xzf "${DEST}/gfs_v17_c48_obs.tar.gz" \
   -C "${DEST}"
+
+mkdir -p "${DEST}/experimental_obs"
+tar -xzf "${DEST}/gfs_v17_c48_marine_obs.tar.gz" \
+  -C "${DEST}/experimental_obs"
 ```
 
 Submit:
@@ -576,7 +710,15 @@ The extracted layout is:
 /work/global_workflow_data/gdas.20211221
 /work/global_workflow_data/gfs.20211220
 /work/global_workflow_data/gfs.20211221
+/work/global_workflow_data/experimental_obs/gdas.20211220
+/work/global_workflow_data/experimental_obs/gdas.20211221
+/work/global_workflow_data/experimental_obs/gfs.20211220
+/work/global_workflow_data/experimental_obs/gfs.20211221
 ```
+
+`dev/workflow/hosts/nimbus.yaml` sets `DMPDIR` and `BASE_DATA` to
+`/work/global_workflow_data`, so the dump directories and `experimental_obs`
+must sit directly under it.
 
 ## 12. Configure the experiment
 
@@ -586,13 +728,17 @@ Set:
 export ICSDIR_ROOT=/work/global_workflow_data/gfs_v17_c48_archive
 export RUNTESTS=/work/global_workflow_data/run
 export DMPDIR=/work/global_workflow_data
+export BASE_DATA=/work/global_workflow_data
+export CRTM_FIX=${ICSDIR_ROOT}/fix/crtm/v2.4.0.2
 export pslot=C96C48mx500_S2SW_cyc_gfs
 
 mkdir -p "${RUNTESTS}"
 test -d "${ICSDIR_ROOT}/C96C48/20250808"
 test -d "${ICSDIR_ROOT}/fix"
+test -d "${CRTM_FIX}"
 test -d "${DMPDIR}/gdas.20211220"
 test -d "${DMPDIR}/gdas.20211221"
+test -d "${BASE_DATA}/experimental_obs/gdas.20211221"
 ```
 
 Set up the experiment from the repository:
@@ -622,8 +768,161 @@ archives only if no other user or process needs them:
 
 ```bash
 rm -f /scratch4/NCEPDEV/stmp/${USER}/case-tars/gfs_v17_c48_*.tar.gz
-rm -f /scratch4/NCEPDEV/stmp/${USER}/case-tars/obs_manifest.txt
+rm -f /scratch4/NCEPDEV/stmp/${USER}/case-tars/ics_manifest.txt
 ```
 
 Do not use broad recursive deletion. Remove only the named archive and
 manifest files.
+
+## 14. How the file lists were verified
+
+The lists above were not guessed. Each one was derived from an earlier
+successful run of this case on Ursa and cross-checked against the workflow
+code. All checks were short, read-only commands (`ls`, `stat`, `grep`, and
+`du` limited with `timeout`) and none were run on whole data trees.
+
+Reference run:
+
+```bash
+RUN=/scratch3/NCEPDEV/global/Anton.Fernando/RUNTESTS/COMROOT/C96C48mx500_S2SW_cyc_gfs
+```
+
+Limits of this evidence: it shows what the run staged and read, not what a
+different configuration might need. The reference experiment's `config.base`
+was from an older checkout, so the case switches were taken from
+`dev/ci/cases/pr/C96C48mx500_S2SW_cyc_gfs.yaml` and
+`dev/ci/cases/yamls/gfs_cyc_defaults_ci.yaml` instead. Re-run the checks below
+if the case YAML or `versions/fix.ver` changes.
+
+### 14.1 Case settings
+
+From the case YAMLs: cycled GFS, app `S2SW`, `C96` deterministic and `C48`
+ensemble, `mx500` ocean, `2021122012` to `2021122100`, 2 ensemble members,
+cold start from `ICSDIR_ROOT/C96C48/20250808`. `DO_JEDIOCNVAR=YES` (marine
+DA), `DO_JEDIATMVAR=NO` and `DO_JEDIATMENS=NO` (GSI hybrid atmospheric DA).
+
+### 14.2 Initial conditions (54 files)
+
+The `stage_ic` task links its inputs from `ICSDIR` into `COMROOT`. List the
+links that point at `ICSDIR`, and confirm each target exists:
+
+```bash
+cd "${RUN}"
+find . -type l -lname '*ICSDIR*' -printf '%l\n' |
+  sed 's#.*/C96C48/20250808/##' | sort > /tmp/ic_list.txt
+wc -l /tmp/ic_list.txt        # 54
+ICS=/scratch3/NCEPDEV/global/role.glopara/data/ICSDIR/C96C48/20250808
+while read -r f; do [[ -e "${ICS}/${f}" ]] || echo "MISSING ${f}"; done \
+  < /tmp/ic_list.txt          # prints nothing
+rm -f /tmp/ic_list.txt
+```
+
+Result: 54 links, none dangling, covering exactly the `gdas.20211220` and
+`enkfgdas.20211220` (`mem001`, `mem002`) files in `tar_c48_ics.sh`. This agrees
+with `parm/stage/{master_gfs,analysis,atmosphere_cold,ocean,ice,wave}.yaml.j2`.
+The same links, resolved with `stat -L`, total 2.43 GiB.
+
+### 14.3 FIX
+
+Find the FIX paths the run actually opened, by category:
+
+```bash
+cd "${RUN}/logs"
+for k in aer am gsi lut orog ugwd mom6 cice cpl wave verif; do
+  echo "== ${k}"
+  grep -rhoE "/fix/${k}/[0-9]+/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?" . |
+    sort | uniq -c | sort -rn | head -8
+done
+grep -rh "crtm/v2.4.0.2" . | head -1
+```
+
+Results and the code that explains them:
+
+- `mom6/500` and `cice/500` were the only mom6 and cice subdirectories used.
+- `aer`: `ush/forecast_predet.sh` copies only
+  `merra2.aerclim.2014-2023.m01..m12.nc` when `IAER=1011` and
+  `MERRA2_6ym` is off. The `y*` directories are used only when
+  `MERRA2_6ym=.true.`.
+- `orog` and `ugwd`: `ush/forecast_predet.sh` reads `${CASE}` subdirectories,
+  so only `C48` and `C96`, plus `ugwd/ugwp_limb_tau.nc`.
+- `cpl`: `${FIXglobal}/cpl/a${CASE}o${OCNRES}`, so `aC48o500` and `aC96o500`.
+- `crtm`: `modulefiles/gw_run.ursa.lua` sets `CRTM_FIX` to
+  `fix/crtm/v2.4.0.2`, and the GSI analysis log shows 2812 references to it.
+  It is not in `versions/fix.ver`.
+- Dropped as unreferenced: the logs have zero references to `sfc_climo`,
+  `datm`, `gdas/gsibec`, and `gdas/aero`. `chem` appears only as the
+  `FIXchem` environment variable string, not as a file that was opened.
+
+The size claims were checked per directory with
+`du -shL <path>` under `timeout`, for example `aer/20250529` 144G,
+`mom6/20250128` 17G, `orog/20240917/C96` 399M, `crtm/v2.4.0.2` 3.4G.
+
+### 14.4 Atmospheric dumps
+
+```bash
+cd "${RUN}/logs"
+grep -rhoE "role.glopara/dump/(gdas|gfs)\.[0-9]{8}/[0-9]{2}/atmos/[A-Za-z0-9_.+-]+" . |
+  sed 's#role.glopara/dump/##; s#/atmos/#/#' | sort -u > /tmp/dump_used.txt
+awk -F/ '{print $1"/"$2}' /tmp/dump_used.txt | sort | uniq -c
+rm -f /tmp/dump_used.txt
+```
+
+Result: 79 files in `gdas.20211220/18`, 75 in `gdas.20211221/00`, 77 in
+`gfs.20211220/18`, 75 in `gfs.20211221/00`, and one file in
+`gdas.20211220/12` (`gdas.t12z.updated.status.tm00.bufr_d`). No `06` cycle was
+read.
+
+The `atmos` entry in each cycle directory is a symlink to `./`:
+
+```bash
+ls -ld /scratch3/NCEPDEV/global/role.glopara/dump/gdas.20211220/18/atmos
+# lrwxrwxrwx ... atmos -> ./
+```
+
+So the data files sit directly under `HH/`, and tarring `.../atmos` would store
+only the link.
+
+Sizes, summed with `stat -L -c %s`: the files read total 25.4 GiB, and the
+whole directories are 7.6, 7.1, 5.2, and 5.5 GiB (gdas 18, gdas 00, gfs 18,
+gfs 00). The doc archives whole directories, which are about 25 GiB, to avoid
+missing a file that a different run might read.
+
+### 14.5 Marine observations
+
+```bash
+cd "${RUN}/logs"
+grep -rhoE "experimental_obs/(gdas|gfs)\.[0-9]{8}/[0-9]{2}/ocean/[a-z]+" . |
+  sort | uniq -c
+```
+
+Result: `icec`, `sss`, and `sst` were read for both `20211220/18` and
+`20211221/00`, and `adt` only for `20211221/00`, in both the `gdas.*` and
+`gfs.*` trees. `insitu` was not read, and the directory is empty (4.0K). The
+`gdas.*` and `gfs.*` files have different inodes, so they are separate copies
+and both must be archived.
+
+The path comes from `dmpdir_exp` in
+`dev/parm/config/gfs/yaml/defaults.yaml` (`${BASE_DATA}/experimental_obs`),
+which `dev/parm/config/gfs/config.prepoceanobs.j2` uses as `DMPDIR`.
+
+### 14.6 Checks on the generated scripts
+
+Every path in `tar_c48_ics.sh`, `tar_c48_fix.sh`, `tar_c48_obs.sh`, and
+`tar_c48_marine_obs.sh` was tested with `[[ -e <path> ]]` against the Ursa
+source trees and all exist. The scripts also repeat that test at run time and
+stop on the first missing item. The document was checked for non-ASCII
+characters and trailing whitespace:
+
+```bash
+grep -nP '[^\x00-\x7F]| +$' docs/ursa_gcs_transfer.md   # prints nothing
+```
+
+### 14.7 Not verified
+
+- Whether the restricted (`rstprod`) files may be copied. This is a policy
+  decision.
+- Whether `gdas.t12z.radstat.tar` is required on the first cycle. It is
+  staged when present, and `USE_RADSTAT` is `NO` for `RUN=gfs` in
+  `parm/config/gfs/config.anal`. It is kept to match the reference run.
+- The tar jobs themselves, the uploads, and the WCOSS-side run have not been
+  executed. Run the section 7 checks and a short WCOSS test after transfer.
