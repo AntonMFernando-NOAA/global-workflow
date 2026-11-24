@@ -69,6 +69,15 @@ elif [[ ${MACHINE_ID} = nimbus ]]; then
         source /usr/share/lmod/lmod/init/bash
     fi
     module --force purge
+    # The Intel oneAPI compiler environment must be set before loading modules.
+    # Sourced inside a function so vars.sh does not see the caller's arguments.
+    _nimbus_intel_vars() {
+        source "${INTEL_COMPILER_VARS:-/opt/intel/oneapi/compiler/2026.1/env/vars.sh}"
+    }
+    set +u # vars.sh references unset variables (e.g. SETVARS_CALL)
+    _nimbus_intel_vars
+    set -u
+    unset -f _nimbus_intel_vars
 
 elif [[ ${MACHINE_ID} = cheyenne* ]]; then
     # We are on NCAR Cheyenne
@@ -119,19 +128,6 @@ elif [[ ${MACHINE_ID} = discover* ]]; then
 elif [[ ${MACHINE_ID} = "noaacloud" ]]; then
     # We are on NOAA Cloud
     module purge
-
-elif [[ ${MACHINE_ID} = "nimbus" ]]; then
-    # We are on Nimbus
-    module purge
-    # The Intel oneAPI compiler environment must be set before loading modules.
-    # Sourced inside a function so vars.sh does not see the caller's arguments.
-    _nimbus_intel_vars() {
-        source "${INTEL_COMPILER_VARS:-/opt/intel/oneapi/compiler/2026.1/env/vars.sh}"
-    }
-    set +u # vars.sh references unset variables (e.g. SETVARS_CALL)
-    _nimbus_intel_vars
-    set -u
-    unset -f _nimbus_intel_vars
 
 else
     echo WARNING: UNKNOWN PLATFORM 1>&2
