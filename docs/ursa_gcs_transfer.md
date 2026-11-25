@@ -14,6 +14,16 @@ Ursa or WCOSS) and a Google Cloud Storage bucket. It covers:
 Section 9 is a worked example that moves the data for the
 `C96C48mx500_S2SW_cyc_gfs` case. Read the general sections first.
 
+Each step states where it runs. The `gcloud` CLI runs on the HPC system (Ursa
+or WCOSS), not on a Google Cloud VM. The location labels mean:
+
+- **HPC login node**: a shared login node on Ursa or WCOSS. Use it only for
+  short commands and moderate transfers.
+- **HPC compute node**: a Slurm batch job, submitted from a login node with
+  `sbatch`.
+- **Your browser**: the Google sign-in page, opened on your own computer.
+- **Google Cloud console**: the web interface, used only where a step says so.
+
 The commands use these placeholders. Set them with `export` before running
 the commands in this guide:
 
@@ -29,6 +39,8 @@ Use the approved organization authentication method if browser login is not
 available.
 
 ## 1. Check space and set up a staging directory
+
+**Where:** HPC login node (Ursa or WCOSS).
 
 Check the available scratch space and your quota:
 
@@ -57,6 +69,9 @@ Do not modify files in shared project directories. Remove only the temporary
 archives you created, and only after their transfers are verified.
 
 ## 2. Install or load the Google Cloud CLI
+
+**Where:** HPC login node. The installer is downloaded from `dl.google.com`
+to the HPC system.
 
 First check whether the module system provides the Google Cloud CLI:
 
@@ -127,6 +142,10 @@ it if the system purges your user directory.
 
 ## 3. Authenticate gcloud
 
+**Where:** HPC login node for the commands, and **your browser** for the sign-in.
+The sign-in URL is opened on your own computer, and the verification code is
+pasted back into the login-node terminal.
+
 Run authentication on a login node. It needs an interactive browser step:
 
 ```bash
@@ -149,6 +168,9 @@ gcloud auth print-access-token >/dev/null
 If the token has expired, run `gcloud auth login` again.
 
 ## 4. Create a GCS bucket (first time only)
+
+**Where:** HPC login node, running the `gcloud` commands below. You can also
+check the bucket in the **Google Cloud console** (Cloud Storage > Buckets).
 
 Skip this section if the bucket already exists. Bucket names are unique across
 all of Google Cloud, so choose a name that is not in use. Creating a bucket
@@ -188,6 +210,8 @@ gcloud storage ls "${BUCKET}"
 ```
 
 ## 5. Transfer data from login nodes only
+
+**Where:** HPC login node only.
 
 Use the login-node path for moderate transfers, for example a few gigabytes.
 For larger transfers, or any step that needs heavy compression or checksumming,
@@ -259,6 +283,9 @@ Check the transferred data as described in section 7.
 
 ## 6. Transfer larger data with Slurm batch jobs
 
+**Where:** HPC compute node. Save the script on a login node, and submit it
+there with `sbatch`.
+
 Use a batch job when the data are large, when archives must be created first,
 or when checksums must be computed. Edit the account, partition, and paths for
 your system:
@@ -311,6 +338,8 @@ Verify every transfer before deleting its source or the staged copy.
 
 ### 7.1 Check local archives
 
+**Where:** HPC login node for small archives. HPC compute node for large ones.
+
 Check that each archive is a valid gzip file and record its SHA-256 value:
 
 ```bash
@@ -322,6 +351,9 @@ Compute SHA-256 values for large files on a compute node (section 6). Save the
 SHA-256 values to compare them after transfer.
 
 ### 7.2 Compare with the GCS copy
+
+**Where:** HPC login node for small files. HPC compute node for large local
+files (the hash is slow there otherwise).
 
 `gcloud storage` checks hashes automatically during `cp` and `rsync`. The
 explicit comparison below gives you a record. It compares the CRC32C hash of the
@@ -338,6 +370,8 @@ large local files.
 
 ### 7.3 Check a checksum file
 
+**Where:** HPC login node.
+
 If you copied a SHA-256 file to GCS, check that the copy matches the local file:
 
 ```bash
@@ -351,6 +385,8 @@ Exit status `0` means the files match.
 
 ## 8. Clean up
 
+**Where:** HPC login node (Ursa or WCOSS), on the HPC staging directory.
+
 After the transfer is verified, remove temporary local archives only if no other
 user or process needs them. Remove only the named files, and do not use broad
 recursive deletion:
@@ -360,6 +396,9 @@ rm -f "${STAGING}/my_archive.tar.gz" "${STAGING}/my_archive.sha256"
 ```
 
 ## 9. Example: C96C48mx500 S2SW case data
+
+**Where:** Ursa for 9.1 to 9.6 and 9.10, and WCOSS3 for 9.7 to 9.9. Each
+subsection states its location.
 
 This example packages, uploads, verifies, downloads, and extracts the data for
 the `C96C48mx500_S2SW_cyc_gfs` case, from Ursa to GCS and then to WCOSS Lustre.
@@ -382,7 +421,7 @@ The source data are:
 The file lists in this example were taken from the files staged and read by an
 earlier successful run of this case, and checked against `link_workflow.sh`,
 `parm/stage/*.j2`, and `ush/forecast_predet.sh`. Sizes are before compression.
-Section 9.13 shows how each list was verified and how to repeat the checks.
+Section 9.11 shows how each list was verified and how to repeat the checks.
 
 Some of the data are restricted (group `rstprod`): the radiance
 `gdas.t12z.radstat` in the initial conditions and several PREPBUFR and BUFR
@@ -412,6 +451,8 @@ mkdir -p /scratch4/NCEPDEV/stmp/${USER}/case-tars
 Use a Slurm compute node for all tar creation, downloads, and large uploads.
 
 ### 9.1 Create a minimal initial-condition archive
+
+**Where:** Ursa compute node (Slurm batch job, `sbatch`).
 
 The case cold starts at `2021122012` with `NMEM_ENS=2`. Only 54 files from
 `C96C48/20250808` are staged: the `gdas.20211220` control and
@@ -504,6 +545,8 @@ sbatch tar_c48_ics.sh
 ```
 
 ### 9.2 Create a minimal FIX archive
+
+**Where:** Ursa compute node (Slurm batch job, `sbatch`).
 
 `sorc/link_workflow.sh` links a FIX version for each category, but this case
 reads only part of each version directory. Do not archive whole FIX versions:
@@ -614,6 +657,8 @@ sbatch tar_c48_fix.sh
 ```
 
 ### 9.3 Create a minimal observation archive
+
+**Where:** Ursa compute node (Slurm batch jobs, `sbatch`).
 
 The case spans `2021122012` through `2021122100`. The atmospheric dump files
 read by the case are in these directories (the `atmos` entry in each cycle
@@ -754,6 +799,9 @@ They are not needed by this 20211220-20211221 test.
 
 ### 9.4 Validate the archives
 
+**Where:** Ursa login node for `ls`. Ursa compute node for `gzip -t` and
+`sha256sum`, because they read the full archives (section 7.1).
+
 Use section 7 for the general checks. For this case, list the four archives and
 their SHA-256 values, and check each gzip file:
 
@@ -773,6 +821,9 @@ Save the SHA-256 values, and record them in `gfs_v17_c48_SHA256SUMS.txt`, for
 comparison after transfer.
 
 ### 9.5 Upload the archives to GCS
+
+**Where:** Ursa login node, running `gcloud` against the bucket. If the upload
+hits session limits, run the same commands in a compute-node job (section 6).
 
 The archives can be transferred directly from an Ursa login node if their
 combined size fits the network and session limits. Authenticate on the login
@@ -819,6 +870,9 @@ gcloud storage ls -l "${BUCKET}/gfs_v17_c48_SHA256SUMS.txt"
 ```
 
 ### 9.6 Verify the GCS copies
+
+**Where:** Ursa login node for the checks. Run the `gcloud storage hash` on the
+local archives on a compute node (section 7.2).
 
 First verify the local archives against their recorded SHA-256 values. All four
 checksum lines should end in `OK`:
@@ -867,6 +921,9 @@ gfs_v17_c48_marine_obs.tar.gz:  grAkyQ==
 
 ### 9.7 Download to WCOSS Lustre
 
+**Where:** WCOSS3 login node for the `install` command. WCOSS3 compute node for
+the download (Slurm batch job, `sbatch`).
+
 On WCOSS3, create the Lustre destination:
 
 ```bash
@@ -912,6 +969,8 @@ gcloud storage cp \
 ```
 
 ### 9.8 Extract on WCOSS Lustre
+
+**Where:** WCOSS3 compute node (Slurm batch job, `sbatch`).
 
 Create `extract_c48_archives.sh`:
 
@@ -975,6 +1034,8 @@ must sit directly under it.
 
 ### 9.9 Configure the experiment
 
+**Where:** WCOSS3 login node, from a checkout of this repository.
+
 Set:
 
 ```bash
@@ -1015,6 +1076,8 @@ find "${RUNTESTS}/EXPDIR" -maxdepth 2 -type f \
 ```
 
 ### 9.10 Clean up the case archives
+
+**Where:** Ursa login node.
 
 After the GCS upload and checksum verification, remove the temporary Ursa
 archives (section 8) only if no other user or process needs them. Remove only
