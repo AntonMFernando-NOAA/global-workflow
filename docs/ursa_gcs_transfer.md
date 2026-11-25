@@ -170,10 +170,44 @@ Set the project:
 gcloud config set project wcoss-eae-project-1
 ```
 
+### 3.1 Create the GCS bucket
+
+Skip this subsection if the bucket already exists. Bucket names are globally
+unique across all of Google Cloud, so choose a name that is not already in use.
+Creating a bucket requires permission to create buckets in the project.
+
+Set the bucket name and location, then create the bucket:
+
+```bash
+export PROJECT=wcoss-eae-project-1
+export BUCKET=gs://wcoss-anton-space1
+export LOCATION=us-central1
+
+gcloud storage buckets create "${BUCKET}" \
+  --project="${PROJECT}" \
+  --location="${LOCATION}" \
+  --uniform-bucket-level-access \
+  --public-access-prevention
+```
+
+The options used here:
+
+- `--uniform-bucket-level-access` applies IAM permissions to the whole bucket
+  and disables per-object ACLs.
+- `--public-access-prevention` blocks public access to the bucket. Keep it
+  enabled for the restricted (`rstprod`) data described above.
+
+Confirm the bucket settings:
+
+```bash
+gcloud storage buckets describe "${BUCKET}" \
+  --format="yaml(name,location,storage_class,iam_configuration)"
+```
+
 Verify bucket access:
 
 ```bash
-gcloud storage ls gs://wcoss-anton-space1
+gcloud storage ls "${BUCKET}"
 ```
 
 Do not place service-account key files in source-code repositories or scripts.
