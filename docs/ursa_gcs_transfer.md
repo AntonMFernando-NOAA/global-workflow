@@ -22,6 +22,8 @@ or WCOSS), not on a Google Cloud VM. The location labels mean:
 - **HPC compute node**: a Slurm batch job, submitted from a login node with
   `sbatch`.
 - **Your browser**: the Google sign-in page, opened on your own computer.
+- **Google Cloud**: a change made in your GCP project, such as creating a
+  bucket. The `gcloud` CLI runs it from a terminal, and no data is transferred.
 - **Google Cloud console**: the web interface, used only where a step says so.
 
 The commands use these placeholders. Set them with `export` before running
@@ -169,7 +171,9 @@ If the token has expired, run `gcloud auth login` again.
 
 ## 4. Create a GCS bucket (first time only)
 
-**Where:** HPC login node, running the `gcloud` commands below. You can also
+**Where:** Google Cloud. The bucket is created in your GCP project with the
+`gcloud` CLI. You type the commands below in a terminal on the HPC login node,
+but they only call Google Cloud, and no data is copied. You can also create or
 check the bucket in the **Google Cloud console** (Cloud Storage > Buckets).
 
 Skip this section if the bucket already exists. Bucket names are unique across
